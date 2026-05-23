@@ -3,6 +3,9 @@ import { cors } from 'hono/cors';
 import type { Context } from 'hono';
 import { fetchAndParseForm, FormFetchError, FormParseError } from './lib/parser.js';
 import { buildJsonSchema } from './lib/schema.js';
+import registry from './forms/registry.js';
+import { validate } from './lib/validator.js';
+import { submitToGoogleForms, SubmissionError } from './lib/submitter.js';
 
 export interface Env {
   GEMINI_API_KEY?: string;
@@ -54,5 +57,35 @@ async function handleSchema(
     return c.json({ error: 'Internal server error' }, 500);
   }
 }
+
+app.post('/api/v1/forms/:formId/responses', async (c) => {
+  const formId = c.req.param('formId');
+  const definition = registry.get(formId);
+  if (!definition) return c.json({ error: 'Form not found' }, 404);
+
+  let body: Record<string, unknown>;
+  try {
+    body = await c.req.json<Record<string, unknown>>();
+  } catch {
+    return c.json({ error: 'Invalid JSON body' }, 400);
+  }
+
+  const errors = validate(body, definition.schema);
+  if (errors.length > 0) {
+    return c.json({ error: 'Validation failed', details: errors }, 400);
+  }
+
+  try {
+    await submitToGoogleForms(definition.submissionUrl, definition.fieldMap, body);
+  } catch (err) {
+    if (err instanceof SubmissionError) {
+      return c.json({ error: 'Failed to submit to Google Forms' }, 502);
+    }
+    console.error('Unexpected submission error:', err);
+    return c.json({ error: 'Internal server error' }, 500);
+  }
+
+  return c.json({ success: true });
+});
 
 export default app;
