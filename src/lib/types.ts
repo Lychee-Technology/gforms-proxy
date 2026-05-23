@@ -47,6 +47,13 @@ export interface RawFormData {
   fields: FieldDetail[];
 }
 
+export interface FormDefinition {
+  formId: string;
+  submissionUrl: string;
+  schema: Record<string, unknown>;
+  fieldMap: Record<string, string>;  // schemaKey → "entry.XXXXXXX"
+}
+
 export const QUESTION_TYPE_MAP: Record<number, string> = {
   0: 'short_answer',
   1: 'paragraph',
