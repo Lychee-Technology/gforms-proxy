@@ -115,10 +115,10 @@ const applyValidationToSchema = (
           break;
         case 'not_between':
           if (first !== null && second !== null) {
-            schema.anyOf = [
-              { exclusiveMaximum: Math.min(first, second) },
-              { exclusiveMinimum: Math.max(first, second) },
-            ];
+            addNotConstraint(schema, {
+              minimum: Math.min(first, second),
+              maximum: Math.max(first, second),
+            });
           }
           break;
       }
