@@ -29,26 +29,26 @@ const BASE_DATA: RawFormData = {
 
 describe('buildJsonSchema (no Gemini)', () => {
   test('generates $schema and type:object', async () => {
-    const schema = await buildJsonSchema(BASE_DATA, null);
+    const schema = buildJsonSchema(BASE_DATA);
     expect(schema.$schema).toBe('https://json-schema.org/draft/2020-12/schema');
     expect(schema.type).toBe('object');
     expect(schema.additionalProperties).toBe(false);
   });
 
   test('sets required array from required fields only', async () => {
-    const schema = await buildJsonSchema(BASE_DATA, null);
+    const schema = buildJsonSchema(BASE_DATA);
     expect(schema.required).toEqual(['field_1']);
   });
 
   test('generates fallback keys field_1, field_2 without Gemini', async () => {
-    const schema = await buildJsonSchema(BASE_DATA, null);
+    const schema = buildJsonSchema(BASE_DATA);
     const props = schema.properties as Record<string, unknown>;
     expect(Object.keys(props)).toContain('field_1');
     expect(Object.keys(props)).toContain('field_2');
   });
 
   test('sets $id from formId', async () => {
-    const schema = await buildJsonSchema(BASE_DATA, null);
+    const schema = buildJsonSchema(BASE_DATA);
     expect(schema.$id).toBe('https://docs.google.com/forms/d/e/abc123/schema');
   });
 
@@ -67,7 +67,7 @@ describe('buildJsonSchema (no Gemini)', () => {
         },
       ],
     };
-    const schema = await buildJsonSchema(data, null);
+    const schema = buildJsonSchema(data);
     const prop = (schema.properties as any).field_1;
     expect(prop.type).toBe('string');
     expect(prop.enum).toEqual(['Red', 'Green', 'Blue']);
@@ -88,7 +88,7 @@ describe('buildJsonSchema (no Gemini)', () => {
         },
       ],
     };
-    const schema = await buildJsonSchema(data, null);
+    const schema = buildJsonSchema(data);
     const prop = (schema.properties as any).field_1;
     expect(prop.minimum).toBe(18);
   });
@@ -108,14 +108,14 @@ describe('buildJsonSchema (no Gemini)', () => {
         },
       ],
     };
-    const schema = await buildJsonSchema(data, null);
+    const schema = buildJsonSchema(data);
     const prop = (schema.properties as any).field_1;
     expect(prop.format).toBe('email');
   });
 
   test('omits $id when formId is empty', async () => {
     const data: RawFormData = { ...BASE_DATA, formId: '' };
-    const schema = await buildJsonSchema(data, null);
+    const schema = buildJsonSchema(data);
     expect(schema.$id).toBeUndefined();
   });
 
@@ -124,12 +124,12 @@ describe('buildJsonSchema (no Gemini)', () => {
       ...BASE_DATA,
       fields: BASE_DATA.fields.map((f) => ({ ...f, required: false })),
     };
-    const schema = await buildJsonSchema(data, null);
+    const schema = buildJsonSchema(data);
     expect(schema.required).toBeUndefined();
   });
 
   test('property title is the question text, not entry ID', async () => {
-    const schema = await buildJsonSchema(BASE_DATA, null);
+    const schema = buildJsonSchema(BASE_DATA);
     const props = schema.properties as Record<string, { title: string }>;
     expect(props['field_1']?.title).toBe('Full Name');
   });

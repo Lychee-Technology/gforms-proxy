@@ -7,13 +7,11 @@ import registry from './forms/registry.js';
 import { validate } from './lib/validator.js';
 import { submitToGoogleForms, SubmissionError } from './lib/submitter.js';
 
-export interface Env {
-  GEMINI_API_KEY?: string;
-}
+export interface Env {}
 
 const app = new Hono<{ Bindings: Env }>();
 
-// Public API — any origin may call this service; GEMINI_API_KEY stays server-side only
+// Public API — any origin may call this service
 app.use('*', cors());
 
 app.get('/', (c) =>
@@ -23,7 +21,7 @@ app.get('/', (c) =>
 app.get('/schema', async (c) => {
   const url = c.req.query('url');
   if (!url) return c.json({ error: 'Missing required query parameter: url' }, 400);
-  return handleSchema(url, c.env.GEMINI_API_KEY ?? null, c);
+  return handleSchema(url, c);
 });
 
 app.post('/schema', async (c) => {
@@ -36,17 +34,13 @@ app.post('/schema', async (c) => {
   if (typeof body.url !== 'string' || !body.url) {
     return c.json({ error: 'Body field "url" must be a non-empty string' }, 400);
   }
-  return handleSchema(body.url, c.env.GEMINI_API_KEY ?? null, c);
+  return handleSchema(body.url, c);
 });
 
-async function handleSchema(
-  url: string,
-  geminiApiKey: string | null,
-  c: Context<{ Bindings: Env }>,
-) {
+async function handleSchema(url: string, c: Context<{ Bindings: Env }>) {
   try {
     const rawData = await fetchAndParseForm(url);
-    const schema = await buildJsonSchema(rawData, geminiApiKey);
+    const schema = buildJsonSchema(rawData);
     return c.json(schema);
   } catch (err) {
     if (err instanceof FormParseError) return c.json({ error: err.message }, 400);

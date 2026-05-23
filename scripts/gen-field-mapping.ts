@@ -8,7 +8,8 @@
  */
 import { writeFileSync } from 'node:fs';
 import { fetchAndParseForm } from '../src/lib/parser.js';
-import { buildJsonSchema, buildFieldsMeta, buildFieldMap } from '../src/lib/schema.js';
+import { buildJsonSchema, buildFieldMap } from '../src/lib/schema.js';
+import { buildFieldsMetaWithGemini } from './gemini.js';
 import type { FormDefinition } from '../src/lib/types.js';
 
 function parseArgs(argv: string[]): { url: string; out: string | null; geminiKey: string | null } {
@@ -46,8 +47,8 @@ async function main(): Promise<void> {
 
   if (out) {
     // Build metas once and share between schema + fieldMap to avoid double Gemini call
-    const metas = await buildFieldsMeta(rawData.fields.map((f) => f.label), apiKey);
-    const schema = await buildJsonSchema(rawData, apiKey, metas);
+    const metas = await buildFieldsMetaWithGemini(rawData.fields.map((f) => f.label), apiKey);
+    const schema = buildJsonSchema(rawData, metas);
     const fieldMap = buildFieldMap(rawData.fields, metas);
     const submissionUrl = `https://docs.google.com/forms/d/e/${rawData.formId}/formResponse`;
 
@@ -66,7 +67,7 @@ async function main(): Promise<void> {
     console.error(`     // In the Map: ['${rawData.formId}', form as FormDefinition]`);
     console.error('  2. pnpm deploy');
   } else {
-    const schema = await buildJsonSchema(rawData, apiKey);
+    const schema = buildJsonSchema(rawData);
     console.log(JSON.stringify(schema, null, 2));
   }
 }

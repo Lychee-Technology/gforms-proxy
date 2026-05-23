@@ -1,4 +1,3 @@
-import { GoogleGenAI } from '@google/genai';
 import type {
   FieldDetail,
   FieldMeta,
@@ -7,8 +6,6 @@ import type {
   JsonSchemaProperty,
   RawFormData,
 } from './types.js';
-
-const GEMINI_MODEL = 'gemini-2.0-flash';
 
 // --- Pure helpers ---
 
@@ -25,11 +22,6 @@ const normalizeKey = (value: string, fallbackLabel: string): string => {
     .replace(/^_+|_+$/g, '')
     .slice(0, 48);
   return try2 || 'field';
-};
-
-const parseGeminiText = <T>(text: string): T => {
-  const cleaned = text.replace(/```json|```/g, '').trim();
-  return JSON.parse(cleaned) as T;
 };
 
 const asNumber = (value: string): number | null => {
@@ -248,130 +240,23 @@ const buildFieldPropertySchema = (field: FieldSchemaDetail): JsonSchemaProperty 
   }
 };
 
-const buildGeminiPrompt = (questions: string[]) =>
-  [
-    'You are generating concise metadata for Google Forms questions.',
-    'Return ONLY a JSON array; each element corresponds to the matching input question in order.',
-    'Each element must have "title", "key", and "translated".',
-    'title: concise English (<= 6 words), human-readable summary.',
-    'key: snake_case, ASCII letters/numbers/underscores only, 3-30 chars, derived from meaning.',
-    'translated: a faithful English translation of the original question (not shortened).',
-    'No explanations or extra fields.',
-    'Questions:',
-    ...questions.map((q, idx) => `${idx + 1}. ${q}`),
-  ].join('\n');
-
-export async function buildFieldsMeta(
-  questions: string[],
-  geminiApiKey: string | null,
-): Promise<FieldMeta[]> {
-  const fallback = questions.map((q, idx) => ({
+export function buildFieldsMeta(questions: string[]): FieldMeta[] {
+  return questions.map((q, idx) => ({
     title: q,
     key: `field_${idx + 1}`,
     translated: q,
   }));
-
-  if (!geminiApiKey || !questions.length) return fallback;
-
-  try {
-    const client = new GoogleGenAI({ apiKey: geminiApiKey });
-    const result = await client.models.generateContent({
-      model: GEMINI_MODEL,
-      contents: [{ role: 'user', parts: [{ text: buildGeminiPrompt(questions) }] }],
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              title: { type: 'string', description: 'Concise, <=6 word English summary.' },
-              key: { type: 'string', description: 'snake_case, 3-30 chars.' },
-              translated: { type: 'string', description: 'Faithful English translation.' },
-            },
-            required: ['title', 'key', 'translated'],
-          },
-        },
-      },
-    });
-
-    const text = result?.text;
-    if (!text) throw new Error('Empty Gemini response');
-
-    const parsed = parseGeminiText<Array<Record<string, unknown>>>(text);
-    return questions.map((q, idx) => {
-      const item = parsed[idx] ?? {};
-      const title =
-        typeof item['title'] === 'string' && item['title'].trim() ? item['title'].trim() : q;
-      const key = normalizeKey(typeof item['key'] === 'string' ? item['key'] : title, q);
-      const translated =
-        typeof item['translated'] === 'string' && item['translated'].trim()
-          ? item['translated'].trim()
-          : q;
-      return { title, key, translated };
-    });
-  } catch {
-    return fallback;
-  }
 }
 
-export async function buildFormMeta(
-  title: string,
-  geminiApiKey: string | null,
-): Promise<FormMeta> {
-  if (!geminiApiKey) return { translated: title };
-
-  try {
-    const client = new GoogleGenAI({ apiKey: geminiApiKey });
-    const result = await client.models.generateContent({
-      model: GEMINI_MODEL,
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            {
-              text: [
-                'Translate the following Google Form title into clear English.',
-                'Return JSON with a single property "translated".',
-                'No explanations.',
-                `Title: ${title}`,
-              ].join('\n'),
-            },
-          ],
-        },
-      ],
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: 'object',
-          properties: { translated: { type: 'string' } },
-          required: ['translated'],
-        },
-      },
-    });
-
-    const text = result?.text;
-    if (!text) throw new Error('Empty Gemini response');
-    const parsed = parseGeminiText<Record<string, unknown>>(text);
-    const translated =
-      typeof parsed['translated'] === 'string' && parsed['translated'].trim()
-        ? parsed['translated'].trim()
-        : title;
-    return { translated };
-  } catch {
-    return { translated: title };
-  }
+export function buildFormMeta(title: string): FormMeta {
+  return { translated: title };
 }
 
-export async function buildJsonSchema(
+export function buildJsonSchema(
   rawData: RawFormData,
-  geminiApiKey: string | null,
   prebuiltMetas?: FieldMeta[],
-): Promise<Record<string, unknown>> {
-  const metas = prebuiltMetas ?? await buildFieldsMeta(
-    rawData.fields.map((f) => f.label),
-    geminiApiKey,
-  );
+): Record<string, unknown> {
+  const metas = prebuiltMetas ?? buildFieldsMeta(rawData.fields.map((f) => f.label));
 
   const fieldDetails: FieldSchemaDetail[] = rawData.fields.map((field, idx) => {
     const meta = metas[idx] ?? {
@@ -393,7 +278,7 @@ export async function buildJsonSchema(
     };
   });
 
-  const formMeta = await buildFormMeta(rawData.formTitle, geminiApiKey);
+  const formMeta = buildFormMeta(rawData.formTitle);
   const properties: Record<string, JsonSchemaProperty> = {};
   for (const field of fieldDetails) {
     properties[field.key] = buildFieldPropertySchema(field);
