@@ -25,6 +25,17 @@ function checkType(value: unknown, type: string): boolean {
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const URI_RE = /^https?:\/\/.+/;
 
+const patternCache = new Map<string, RegExp>();
+
+function getPattern(pattern: string): RegExp {
+  let re = patternCache.get(pattern);
+  if (!re) {
+    re = new RegExp(pattern);
+    patternCache.set(pattern, re);
+  }
+  return re;
+}
+
 function validateProperty(
   field: string,
   value: unknown,
@@ -37,7 +48,7 @@ function validateProperty(
     return;
   }
 
-  if ('const' in schema && value !== schema['const']) {
+  if ('const' in schema && JSON.stringify(value) !== JSON.stringify(schema['const'])) {
     errors.push({ field, message: `must equal ${JSON.stringify(schema['const'])}` });
     return;
   }
@@ -47,7 +58,6 @@ function validateProperty(
     if (!enumValues.includes(value)) {
       errors.push({ field, message: `must be one of: ${enumValues.join(', ')}` });
     }
-    return;
   }
 
   if (typeof value === 'string') {
@@ -67,7 +77,7 @@ function validateProperty(
       errors.push({ field, message: 'must match format: uri' });
     }
     const pattern = schema['pattern'];
-    if (typeof pattern === 'string' && !new RegExp(pattern).test(value)) {
+    if (typeof pattern === 'string' && !getPattern(pattern).test(value)) {
       errors.push({ field, message: `must match pattern: ${pattern}` });
     }
   }
