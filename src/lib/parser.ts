@@ -202,6 +202,8 @@ export function parseFormHtml(html: string, url: string): RawFormData {
         validation: extractValidation(entryData),
         helpText: typeof (field as any)?.[2] === 'string' ? (field as any)[2] : undefined,
       });
+    } else if (label && entryIdValue === undefined) {
+      console.warn(`[gforms-proxy] Skipped field "${label}" — no entry ID found (unexpected form structure)`);
     }
   }
 
