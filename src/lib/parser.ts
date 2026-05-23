@@ -47,9 +47,7 @@ export async function fetchFormHtml(url: string): Promise<string> {
       },
     });
   } catch (err) {
-    throw new FormFetchError(
-      `Network error fetching form: ${err instanceof Error ? err.message : String(err)}`,
-    );
+    throw new FormFetchError('Network error: could not reach Google Forms');
   }
   if (!response.ok) {
     throw new FormFetchError(`Failed to fetch form: HTTP ${response.status}`, response.status);

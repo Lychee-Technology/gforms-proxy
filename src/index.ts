@@ -10,6 +10,7 @@ export interface Env {
 
 const app = new Hono<{ Bindings: Env }>();
 
+// Public API — any origin may call this service; GEMINI_API_KEY stays server-side only
 app.use('*', cors());
 
 app.get('/', (c) =>
