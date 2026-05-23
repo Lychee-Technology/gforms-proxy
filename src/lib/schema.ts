@@ -99,7 +99,9 @@ const applyValidationToSchema = (
   switch (validation.type) {
     case 'number': {
       if (!canApplyNumber) return property;
-      const [first, second] = validation.values.map(asNumber);
+      const values = validation.values.map(asNumber);
+      const first = values[0] ?? null;
+      const second = values[1] ?? null;
       const primary = first ?? 0;
       schema.type = validation.operator === 'is_whole_number' ? 'integer' : 'number';
       switch (validation.operator) {
