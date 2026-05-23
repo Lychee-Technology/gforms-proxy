@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'vitest';
-import { buildJsonSchema } from '../schema.js';
-import type { RawFormData } from '../types.js';
+import { buildJsonSchema, buildFieldMap } from '../schema.js';
+import type { RawFormData, FieldDetail, FieldMeta } from '../types.js';
 
 const BASE_DATA: RawFormData = {
   formTitle: 'Test Form',
@@ -126,5 +126,32 @@ describe('buildJsonSchema (no Gemini)', () => {
     };
     const schema = await buildJsonSchema(data, null);
     expect(schema.required).toBeUndefined();
+  });
+
+  test('property title is the question text, not entry ID', async () => {
+    const schema = await buildJsonSchema(BASE_DATA, null);
+    const props = schema.properties as Record<string, { title: string }>;
+    expect(props['field_1']?.title).toBe('Full Name');
+  });
+});
+
+describe('buildFieldMap', () => {
+  const fields: FieldDetail[] = [
+    { label: 'Full Name', entryId: 'entry.111', typeCode: 0, typeLabel: 'short_answer', options: [], required: true, validation: null },
+    { label: 'Email', entryId: 'entry.222', typeCode: 0, typeLabel: 'short_answer', options: [], required: false, validation: null },
+  ];
+  const metas: FieldMeta[] = [
+    { title: 'Full Name', key: 'full_name', translated: 'Full Name' },
+    { title: 'Email', key: 'email', translated: 'Email' },
+  ];
+
+  test('maps schema keys to entry IDs', () => {
+    const result = buildFieldMap(fields, metas);
+    expect(result).toEqual({ full_name: 'entry.111', email: 'entry.222' });
+  });
+
+  test('falls back to field_N key when meta missing', () => {
+    const result = buildFieldMap(fields, []);
+    expect(result).toEqual({ field_1: 'entry.111', field_2: 'entry.222' });
   });
 });

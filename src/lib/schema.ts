@@ -1,5 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 import type {
+  FieldDetail,
   FieldMeta,
   FieldSchemaDetail,
   FormMeta,
@@ -178,8 +179,20 @@ const applyValidationToSchema = (
   return schema;
 };
 
+export function buildFieldMap(
+  fields: FieldDetail[],
+  metas: FieldMeta[],
+): Record<string, string> {
+  const map: Record<string, string> = {};
+  fields.forEach((field, idx) => {
+    const key = metas[idx]?.key ?? `field_${idx + 1}`;
+    map[key] = field.entryId;
+  });
+  return map;
+}
+
 const buildFieldPropertySchema = (field: FieldSchemaDetail): JsonSchemaProperty => {
-  const base: JsonSchemaProperty = { title: field.entry_id, description: field.question };
+  const base: JsonSchemaProperty = { title: field.question, description: field.question };
   const hasOptions = field.options.length > 0;
 
   switch (field.type) {
@@ -353,8 +366,9 @@ export async function buildFormMeta(
 export async function buildJsonSchema(
   rawData: RawFormData,
   geminiApiKey: string | null,
+  prebuiltMetas?: FieldMeta[],
 ): Promise<Record<string, unknown>> {
-  const metas = await buildFieldsMeta(
+  const metas = prebuiltMetas ?? await buildFieldsMeta(
     rawData.fields.map((f) => f.label),
     geminiApiKey,
   );
