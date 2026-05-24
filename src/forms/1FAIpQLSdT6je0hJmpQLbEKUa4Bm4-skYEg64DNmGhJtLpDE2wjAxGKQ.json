@@ -1,0 +1,206 @@
+{
+  "formId": "1FAIpQLSdT6je0hJmpQLbEKUa4Bm4-skYEg64DNmGhJtLpDE2wjAxGKQ",
+  "submissionUrl": "https://docs.google.com/forms/d/e/1FAIpQLSdT6je0hJmpQLbEKUa4Bm4-skYEg64DNmGhJtLpDE2wjAxGKQ/formResponse",
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "AI Readiness Self-Check",
+    "description": "AI Readiness Self-Check",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "field_1": {
+        "title": "Industry or line of business",
+        "description": "Industry or line of business",
+        "type": "array",
+        "items": {
+          "type": "string",
+          "enum": [
+            "Education & training",
+            "Real estate / mortgage & lending",
+            "Insurance & financial services",
+            "Accounting & tax",
+            "Immigration / legal services",
+            "Beauty, wellness & local services",
+            "Renovation, repair & home services",
+            "E-commerce & retail",
+            "Consulting & professional services",
+            "Other"
+          ]
+        },
+        "uniqueItems": true,
+        "minItems": 1
+      },
+      "field_2": {
+        "title": "Do you find yourself answering the same kinds of customer questions over and over, daily or weekly?",
+        "description": "Do you find yourself answering the same kinds of customer questions over and over, daily or weekly?",
+        "type": "string",
+        "enum": [
+          "Almost never",
+          "Sometimes",
+          "Yes, often"
+        ]
+      },
+      "field_3": {
+        "title": "Are your customer records scattered across many places?",
+        "description": "Are your customer records scattered across many places?",
+        "type": "string",
+        "enum": [
+          "Mostly in one place",
+          "A bit scattered",
+          "Very scattered"
+        ]
+      },
+      "field_4": {
+        "title": "Do your staff or partners keep asking the same internal process questions? ",
+        "description": "Do your staff or partners keep asking the same internal process questions? ",
+        "type": "string",
+        "enum": [
+          "Rarely",
+          "Sometimes",
+          "Often"
+        ]
+      },
+      "field_5": {
+        "title": "Are customer follow-ups easy to drop or forget?",
+        "description": "Are customer follow-ups easy to drop or forget?",
+        "type": "string",
+        "enum": [
+          "Almost never",
+          "Sometimes",
+          "Yes, often"
+        ]
+      },
+      "field_6": {
+        "title": "Do you have standard reply templates in regular use?",
+        "description": "Do you have standard reply templates in regular use?",
+        "type": "string",
+        "enum": [
+          "Mostly not",
+          "Some, but not complete",
+          "Yes, and we use them often"
+        ]
+      },
+      "field_7": {
+        "title": "Which kinds of replies could AI draft first, for you to review?",
+        "description": "Which kinds of replies could AI draft first, for you to review?",
+        "type": "string",
+        "enum": [
+          "Can't think of any right now",
+          "A few — basic inquiries, document lists, reminders",
+          "Many — replies, summaries, first-draft quotes, follow-ups"
+        ]
+      },
+      "field_8": {
+        "title": "Which actions absolutely require a human to confirm?",
+        "description": "Which actions absolutely require a human to confirm?",
+        "type": "string",
+        "enum": [
+          "Hardly any need human review",
+          "Some do",
+          "Many, and they really matter"
+        ]
+      },
+      "field_9": {
+        "title": "Is customer status clearly recorded somewhere right now?",
+        "description": "Is customer status clearly recorded somewhere right now?",
+        "type": "string",
+        "enum": [
+          "Pretty messy",
+          "Partially recorded",
+          "Many, and they really matter"
+        ]
+      },
+      "field_10": {
+        "title": "Is customer status clearly recorded somewhere right now?",
+        "description": "Is customer status clearly recorded somewhere right now?",
+        "type": "string",
+        "enum": [
+          "Pretty messy",
+          "Partially recorded",
+          "Quite clear"
+        ]
+      },
+      "field_11": {
+        "title": "Are there actions you believe should NOT be automated?",
+        "description": "Are there actions you believe should NOT be automated?",
+        "type": "string",
+        "enum": [
+          "Haven't really thought about it",
+          "A rough idea",
+          "Yes, clearly — quotes, promises, sending, payments, judgment calls stay human"
+        ]
+      },
+      "field_12": {
+        "title": "If you could only improve one workflow first, can you name a specific one?",
+        "description": "If you could only improve one workflow first, can you name a specific one?",
+        "type": "string",
+        "enum": [
+          "Not really",
+          "I have a rough direction",
+          "Yes — I can name one clearly"
+        ]
+      },
+      "field_13": {
+        "title": "If you could only improve one workflow right now, which one?",
+        "description": "If you could only improve one workflow right now, which one?",
+        "type": "string"
+      },
+      "field_14": {
+        "title": "Name",
+        "description": "Name",
+        "type": "string"
+      },
+      "field_15": {
+        "title": "Email",
+        "description": "Email",
+        "type": "string",
+        "format": "email"
+      },
+      "field_16": {
+        "title": "Role / Title",
+        "description": "Role / Title",
+        "type": "string"
+      },
+      "field_17": {
+        "title": "Company",
+        "description": "Company",
+        "type": "string"
+      },
+      "field_18": {
+        "title": "Follow-up preference",
+        "description": "Follow-up preference",
+        "type": "string",
+        "enum": [
+          "Just send me my result",
+          "Send me my result and occasional LTBase updates",
+          "I'm open to a 20-minute workflow review",
+          "No follow-up for now"
+        ]
+      }
+    },
+    "$id": "https://docs.google.com/forms/d/e/1FAIpQLSdT6je0hJmpQLbEKUa4Bm4-skYEg64DNmGhJtLpDE2wjAxGKQ/schema",
+    "required": [
+      "field_1"
+    ]
+  },
+  "fieldMap": {
+    "field_1": "entry.245346219",
+    "field_2": "entry.607954978",
+    "field_3": "entry.1369660535",
+    "field_4": "entry.624170004",
+    "field_5": "entry.1859938648",
+    "field_6": "entry.719498181",
+    "field_7": "entry.360829504",
+    "field_8": "entry.603665348",
+    "field_9": "entry.107368060",
+    "field_10": "entry.481791139",
+    "field_11": "entry.764553877",
+    "field_12": "entry.572923745",
+    "field_13": "entry.1964921533",
+    "field_14": "entry.864042298",
+    "field_15": "entry.1042444202",
+    "field_16": "entry.1084000927",
+    "field_17": "entry.767672401",
+    "field_18": "entry.1839029320"
+  }
+}

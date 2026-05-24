@@ -1,7 +1,7 @@
 {
   "name": "gforms-proxy",
   "version": "1.0.0",
-  "description": "Google Forms → JSON Schema proxy on Cloudflare Workers",
+  "description": "Google Forms proxy",
   "private": true,
   "scripts": {
     "dev": "wrangler dev",
