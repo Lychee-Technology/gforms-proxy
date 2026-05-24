@@ -52,6 +52,7 @@ export interface FormDefinition {
   submissionUrl: string;
   schema: Record<string, unknown>;
   fieldMap: Record<string, string>;  // schemaKey → "entry.XXXXXXX"
+  turnstileEnabled?: boolean;
 }
 
 export const QUESTION_TYPE_MAP: Record<number, string> = {

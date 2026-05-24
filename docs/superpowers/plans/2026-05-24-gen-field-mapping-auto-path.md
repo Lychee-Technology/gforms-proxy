@@ -1,3 +1,25 @@
+# gen-field-mapping Auto Output Path Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Remove `--out` from `gen-field-mapping.ts` so the script always writes `FormDefinition` to `src/forms/<formId>.json` automatically.
+
+**Architecture:** Single file edit. Remove the `out` argument, compute the output path from `rawData.formId` after fetching, and make the file-write unconditional. The stdout schema-print branch is deleted.
+
+**Tech Stack:** Node.js (`node:path`), TypeScript, tsx
+
+---
+
+### Task 1: Update gen-field-mapping.ts
+
+**Files:**
+- Modify: `scripts/gen-field-mapping.ts`
+
+- [ ] **Step 1: Add `node:path` import and remove `--out` from parseArgs**
+
+Replace the top of `scripts/gen-field-mapping.ts` with:
+
+```typescript
 #!/usr/bin/env tsx
 /**
  * CLI: Given a public Google Form URL, fetches the form and writes a
@@ -13,11 +35,10 @@ import { buildJsonSchema, buildFieldMap } from '../src/lib/schema.js';
 import { buildFieldsMetaWithGemini } from './gemini.js';
 import type { FormDefinition } from '../src/lib/types.js';
 
-function parseArgs(argv: string[]): { url: string; geminiKey: string | null; turnstile: boolean } {
+function parseArgs(argv: string[]): { url: string; geminiKey: string | null } {
   const args = argv.slice(2);
   let url = '';
   let geminiKey: string | null = null;
-  let turnstile = false;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -25,21 +46,25 @@ function parseArgs(argv: string[]): { url: string; geminiKey: string | null; tur
       url = args[++i] ?? '';
     } else if (arg === '--gemini-key' && args[i + 1]) {
       geminiKey = args[++i] ?? null;
-    } else if (arg === '--turnstile') {
-      turnstile = true;
     }
   }
 
   if (!url) {
-    console.error('Usage: tsx scripts/gen-field-mapping.ts --url <viewform_url> [--gemini-key <key>] [--turnstile]');
+    console.error('Usage: tsx scripts/gen-field-mapping.ts --url <viewform_url> [--gemini-key <key>]');
     process.exit(1);
   }
 
-  return { url, geminiKey, turnstile };
+  return { url, geminiKey };
 }
+```
 
+- [ ] **Step 2: Replace the main function body**
+
+Replace the `main` function with:
+
+```typescript
 async function main(): Promise<void> {
-  const { url, geminiKey, turnstile } = parseArgs(process.argv);
+  const { url, geminiKey } = parseArgs(process.argv);
   const apiKey = geminiKey ?? process.env['GEMINI_API_KEY'] ?? null;
 
   console.error(`Fetching form: ${url}`);
@@ -47,17 +72,7 @@ async function main(): Promise<void> {
   console.error(`Found ${rawData.fields.length} fields in: ${rawData.formTitle}`);
 
   const metas = await buildFieldsMetaWithGemini(rawData.fields.map((f) => f.label), apiKey);
-  const baseSchema = buildJsonSchema(rawData, metas);
-  const schema: Record<string, unknown> = turnstile
-    ? {
-        ...baseSchema,
-        properties: {
-          ...(baseSchema.properties as Record<string, unknown>),
-          turnstile_token: { type: 'string', description: 'Cloudflare Turnstile token' },
-        },
-        required: [...((baseSchema.required as string[]) ?? []), 'turnstile_token'],
-      }
-    : baseSchema;
+  const schema = buildJsonSchema(rawData, metas);
   const fieldMap = buildFieldMap(rawData.fields, metas);
   const submissionUrl = `https://docs.google.com/forms/d/e/${rawData.formId}/formResponse`;
 
@@ -66,7 +81,6 @@ async function main(): Promise<void> {
     submissionUrl,
     schema,
     fieldMap,
-    ...(turnstile && { turnstileEnabled: true }),
   };
 
   const out = resolve(process.cwd(), 'src/forms', `${rawData.formId}.json`);
@@ -83,3 +97,27 @@ main().catch((err: unknown) => {
   console.error('Error:', err instanceof Error ? err.message : String(err));
   process.exit(1);
 });
+```
+
+- [ ] **Step 3: Verify TypeScript compiles cleanly**
+
+```bash
+pnpm exec tsc --noEmit
+```
+
+Expected: no errors.
+
+- [ ] **Step 4: Run existing tests to confirm no regressions**
+
+```bash
+pnpm test
+```
+
+Expected: all tests pass.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add scripts/gen-field-mapping.ts
+git commit -m "feat: auto-generate output path from form ID in gen-field-mapping"
+```

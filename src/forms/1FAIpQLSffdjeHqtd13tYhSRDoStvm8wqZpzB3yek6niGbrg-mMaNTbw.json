@@ -1,0 +1,49 @@
+{
+  "formId": "1FAIpQLSffdjeHqtd13tYhSRDoStvm8wqZpzB3yek6niGbrg-mMaNTbw",
+  "submissionUrl": "https://docs.google.com/forms/d/e/1FAIpQLSffdjeHqtd13tYhSRDoStvm8wqZpzB3yek6niGbrg-mMaNTbw/formResponse",
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "Lychee Contract form",
+    "description": "Lychee Contract form",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "field_1": {
+        "title": "name",
+        "description": "name",
+        "type": "string"
+      },
+      "field_2": {
+        "title": "email",
+        "description": "email",
+        "type": "string",
+        "format": "email"
+      },
+      "field_3": {
+        "title": "company",
+        "description": "company",
+        "type": "string"
+      },
+      "field_4": {
+        "title": "message",
+        "description": "message",
+        "type": "string"
+      },
+      "turnstile_token": {
+        "type": "string",
+        "description": "Cloudflare Turnstile token"
+      }
+    },
+    "$id": "https://docs.google.com/forms/d/e/1FAIpQLSffdjeHqtd13tYhSRDoStvm8wqZpzB3yek6niGbrg-mMaNTbw/schema",
+    "required": [
+      "turnstile_token"
+    ]
+  },
+  "fieldMap": {
+    "field_1": "entry.2095287462",
+    "field_2": "entry.641910207",
+    "field_3": "entry.1511133853",
+    "field_4": "entry.1981990876"
+  },
+  "turnstileEnabled": true
+}

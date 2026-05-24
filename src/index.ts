@@ -6,8 +6,11 @@ import { buildJsonSchema } from './lib/schema.js';
 import registry from './forms/registry.js';
 import { validate } from './lib/validator.js';
 import { submitToGoogleForms, SubmissionError } from './lib/submitter.js';
+import { verifyTurnstile, TurnstileError } from './lib/turnstile.js';
 
-export interface Env {}
+export interface Env {
+  TURNSTILE_SECRET_KEY: string;
+}
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -67,6 +70,20 @@ app.post('/api/v1/forms/:formId/responses', async (c) => {
   const errors = validate(body, definition.schema);
   if (errors.length > 0) {
     return c.json({ error: 'Validation failed', details: errors }, 400);
+  }
+
+  if (definition.turnstileEnabled) {
+    const token = body['turnstile_token'] as string;
+    const remoteIp = c.req.header('CF-Connecting-IP');
+    try {
+      await verifyTurnstile(token, c.env.TURNSTILE_SECRET_KEY, remoteIp);
+    } catch (err) {
+      if (err instanceof TurnstileError) {
+        return c.json({ error: 'Turnstile verification failed' }, 400);
+      }
+      console.error('Unexpected Turnstile error:', err);
+      return c.json({ error: 'Internal server error' }, 500);
+    }
   }
 
   try {
