@@ -15,15 +15,15 @@
   "license": "ISC",
   "packageManager": "pnpm@10.24.0",
   "dependencies": {
-    "hono": "^4.6.0"
+    "hono": "^4.12.22"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260523.1",
-    "@google/genai": "^1.33.0",
-    "@types/node": "^24.1.0",
+    "@google/genai": "^1.52.0",
+    "@types/node": "^24.12.4",
     "tsx": "^4.22.3",
     "typescript": "^5.9.3",
-    "vitest": "^2.0.0",
-    "wrangler": "^4.54.0"
+    "vitest": "^2.1.9",
+    "wrangler": "^4.94.0"
   }
 }
