@@ -8,11 +8,15 @@
  */
 import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { fetchAndParseForm } from '../src/lib/parser.js';
+import { extractFormId, fetchAndParseForm } from '../src/lib/parser.js';
 import { buildJsonSchema, buildFieldMap } from '../src/lib/schema.js';
 import { buildFieldsMetaWithGemini } from './gemini.js';
 import { checkTurnstileDowngrade } from './turnstile-guard.js';
 import type { FormDefinition } from '../src/lib/types.js';
+
+function printUsage(): void {
+  console.error('Usage: tsx scripts/gen-field-mapping.ts --url <viewform_url> [--gemini-key <key>] [--turnstile] [--force]');
+}
 
 function parseArgs(argv: string[]): { url: string; geminiKey: string | null; turnstile: boolean; force: boolean } {
   const args = argv.slice(2);
@@ -31,11 +35,15 @@ function parseArgs(argv: string[]): { url: string; geminiKey: string | null; tur
       turnstile = true;
     } else if (arg === '--force') {
       force = true;
+    } else {
+      console.error(`Unknown argument: ${arg}`);
+      printUsage();
+      process.exit(1);
     }
   }
 
   if (!url) {
-    console.error('Usage: tsx scripts/gen-field-mapping.ts --url <viewform_url> [--gemini-key <key>] [--turnstile] [--force]');
+    printUsage();
     process.exit(1);
   }
 
@@ -46,16 +54,22 @@ async function main(): Promise<void> {
   const { url, geminiKey, turnstile, force } = parseArgs(process.argv);
   const apiKey = geminiKey ?? process.env['GEMINI_API_KEY'] ?? null;
 
+  // Guard before fetching: formId is derived from the URL alone, so a doomed
+  // regeneration can abort without a network round-trip. An unrecognized URL
+  // yields '' and falls through to fetchAndParseForm's own error.
+  const formId = extractFormId(url);
+  const out = resolve(process.cwd(), 'src/forms', `${formId}.json`);
+  if (formId) {
+    const downgradeError = checkTurnstileDowngrade(out, { turnstile, force });
+    if (downgradeError) {
+      console.error(`Error: ${downgradeError}`);
+      process.exit(1);
+    }
+  }
+
   console.error(`Fetching form: ${url}`);
   const rawData = await fetchAndParseForm(url);
   console.error(`Found ${rawData.fields.length} fields in: ${rawData.formTitle}`);
-
-  const out = resolve(process.cwd(), 'src/forms', `${rawData.formId}.json`);
-  const downgradeError = checkTurnstileDowngrade(out, { turnstile, force });
-  if (downgradeError) {
-    console.error(`\nError: ${downgradeError}`);
-    process.exit(1);
-  }
 
   const metas = await buildFieldsMetaWithGemini(rawData.fields.map((f) => f.label), apiKey);
   const baseSchema = buildJsonSchema(rawData, metas);

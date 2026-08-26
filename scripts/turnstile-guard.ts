@@ -12,9 +12,12 @@ export function checkTurnstileDowngrade(
   if (opts.turnstile || opts.force) return null;
   if (!existsSync(outPath)) return null;
 
+  // Read errors (permissions etc.) propagate: overwriting on an unreadable
+  // file could still strip protection. Only unparseable JSON is waved through.
+  const raw = readFileSync(outPath, 'utf8');
   let existing: unknown;
   try {
-    existing = JSON.parse(readFileSync(outPath, 'utf8'));
+    existing = JSON.parse(raw);
   } catch {
     return null;
   }

@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { checkTurnstileDowngrade } from '../turnstile-guard.js';
@@ -52,5 +52,20 @@ describe('checkTurnstileDowngrade', () => {
     const path = join(dir, 'form.json');
     writeFileSync(path, 'not json');
     expect(checkTurnstileDowngrade(path, { turnstile: false, force: false })).toBeNull();
+  });
+
+  test('allows regenerating when turnstileEnabled is explicitly false', () => {
+    const path = writeDefinition({ formId: 'abc', turnstileEnabled: false });
+    expect(checkTurnstileDowngrade(path, { turnstile: false, force: false })).toBeNull();
+  });
+
+  test('propagates filesystem read errors instead of allowing the overwrite', () => {
+    const path = writeDefinition({ formId: 'abc', turnstileEnabled: true });
+    chmodSync(path, 0o000);
+    try {
+      expect(() => checkTurnstileDowngrade(path, { turnstile: false, force: false })).toThrow();
+    } finally {
+      chmodSync(path, 0o644);
+    }
   });
 });
