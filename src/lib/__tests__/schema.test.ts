@@ -155,3 +155,84 @@ describe('buildFieldMap', () => {
     expect(result).toEqual({ field_1: 'entry.111', field_2: 'entry.222' });
   });
 });
+
+describe('key deduplication', () => {
+  const makeField = (label: string, entryId: string, required = false): FieldDetail => ({
+    label,
+    entryId,
+    typeCode: 0,
+    typeLabel: 'short_answer',
+    options: [],
+    required,
+    validation: null,
+  });
+  const makeMeta = (key: string, title = key): FieldMeta => ({ title, key, translated: title });
+
+  const dupFields = [
+    makeField('Is status recorded?', 'entry.1'),
+    makeField('Is status recorded?', 'entry.2', true),
+  ];
+  const dupMetas = [makeMeta('status_recorded'), makeMeta('status_recorded')];
+
+  test('colliding keys get distinct suffixed keys in schema properties', () => {
+    const schema = buildJsonSchema(
+      { formTitle: 'T', formId: 'id', fields: dupFields },
+      dupMetas,
+    );
+    const props = schema.properties as Record<string, unknown>;
+    expect(Object.keys(props)).toEqual(['status_recorded', 'status_recorded_2']);
+  });
+
+  test('fieldMap uses the same deduplicated keys as the schema', () => {
+    const fieldMap = buildFieldMap(dupFields, dupMetas);
+    expect(fieldMap).toEqual({
+      status_recorded: 'entry.1',
+      status_recorded_2: 'entry.2',
+    });
+  });
+
+  test('required array uses deduplicated keys', () => {
+    const schema = buildJsonSchema(
+      { formTitle: 'T', formId: 'id', fields: dupFields },
+      dupMetas,
+    );
+    expect(schema.required).toEqual(['status_recorded_2']);
+  });
+
+  test('a generated key equal to turnstile_token is renamed', () => {
+    const fields = [makeField('Token?', 'entry.9')];
+    const metas = [makeMeta('turnstile_token')];
+    const schema = buildJsonSchema({ formTitle: 'T', formId: 'id', fields }, metas);
+    const props = schema.properties as Record<string, unknown>;
+    expect(props['turnstile_token']).toBeUndefined();
+    expect(props['turnstile_token_2']).toBeDefined();
+    expect(buildFieldMap(fields, metas)).toEqual({ turnstile_token_2: 'entry.9' });
+  });
+
+  test('collision with an already-suffixed key still yields distinct keys', () => {
+    const fields = [
+      makeField('A', 'entry.1'),
+      makeField('B', 'entry.2'),
+      makeField('C', 'entry.3'),
+    ];
+    const metas = [makeMeta('contact'), makeMeta('contact'), makeMeta('contact_2')];
+    const fieldMap = buildFieldMap(fields, metas);
+    expect(Object.keys(fieldMap)).toHaveLength(3);
+    expect(Object.values(fieldMap)).toEqual(['entry.1', 'entry.2', 'entry.3']);
+    const schema = buildJsonSchema({ formTitle: 'T', formId: 'id', fields }, metas);
+    expect(Object.keys(schema.properties as Record<string, unknown>)).toEqual(
+      Object.keys(fieldMap),
+    );
+  });
+
+  test('duplicate fallback keys from missing metas stay distinct', () => {
+    const fields = [makeField('A', 'entry.1'), makeField('B', 'entry.2')];
+    const metas = [makeMeta('field_2')];
+    const fieldMap = buildFieldMap(fields, metas);
+    const schema = buildJsonSchema({ formTitle: 'T', formId: 'id', fields }, metas);
+    expect(Object.keys(fieldMap)).toHaveLength(2);
+    expect(Object.keys(schema.properties as Record<string, unknown>)).toEqual(
+      Object.keys(fieldMap),
+    );
+  });
+});
