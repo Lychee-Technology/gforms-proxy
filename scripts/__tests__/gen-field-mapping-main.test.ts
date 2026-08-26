@@ -86,4 +86,27 @@ describe('main() acceptance paths', () => {
     // Regeneration actually happened: parsed fields are present
     expect(Object.keys(definition.fieldMap)).toHaveLength(2);
   });
+
+  test('regenerating with --force strips turnstileEnabled and the turnstile_token splice', async () => {
+    const formId = 'protectedForm123';
+    writeFileSync(
+      definitionPath(formId),
+      JSON.stringify({ formId, turnstileEnabled: true }, null, 2) + '\n',
+    );
+
+    await main([
+      'node',
+      'gen-field-mapping.ts',
+      '--url',
+      `https://docs.google.com/forms/d/e/${formId}/viewform`,
+      '--force',
+    ]);
+
+    const definition = readDefinition(formId);
+    expect(definition.turnstileEnabled).toBeUndefined();
+    expect(definition.schema.properties).not.toHaveProperty('turnstile_token');
+    expect(definition.schema.required ?? []).not.toContain('turnstile_token');
+    // Regeneration actually happened: parsed fields are present
+    expect(Object.keys(definition.fieldMap)).toHaveLength(2);
+  });
 });
