@@ -1,27 +1,55 @@
 import { describe, test, expect } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { resolve } from 'node:path';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 
 const repoRoot = resolve(__dirname, '../..');
 const tsxBin = resolve(repoRoot, 'node_modules/.bin/tsx');
 const script = resolve(repoRoot, 'scripts/gen-field-mapping.ts');
 
-function runCli(...args: string[]): { status: number | null; stderr: string } {
-  const result = spawnSync(tsxBin, [script, ...args], { cwd: repoRoot, encoding: 'utf8' });
+function runCli(args: string[], cwd: string = repoRoot): { status: number | null; stderr: string } {
+  const result = spawnSync(tsxBin, [script, ...args], { cwd, encoding: 'utf8' });
   return { status: result.status, stderr: result.stderr };
 }
 
 describe('gen-field-mapping CLI argument parsing', () => {
   test('rejects an unknown flag with usage and non-zero exit', () => {
-    const { status, stderr } = runCli('--url', 'http://example.com/form', '--turnstlie');
+    const { status, stderr } = runCli(['--url', 'http://example.com/form', '--turnstlie']);
     expect(status).toBe(1);
     expect(stderr).toContain('Unknown argument: --turnstlie');
     expect(stderr).toContain('Usage:');
   });
 
   test('exits non-zero with usage when --url is missing', () => {
-    const { status, stderr } = runCli('--turnstile');
+    const { status, stderr } = runCli(['--turnstile']);
     expect(status).toBe(1);
     expect(stderr).toContain('Usage:');
+  });
+});
+
+describe('gen-field-mapping CLI turnstile guard', () => {
+  test('regenerating a protected form without --turnstile exits non-zero and leaves the file untouched', () => {
+    const formId = 'testFormId123';
+    const workDir = mkdtempSync(join(tmpdir(), 'gen-field-mapping-'));
+    try {
+      const formsDir = join(workDir, 'src', 'forms');
+      mkdirSync(formsDir, { recursive: true });
+      const definitionPath = join(formsDir, `${formId}.json`);
+      const original = JSON.stringify({ formId, turnstileEnabled: true }, null, 2) + '\n';
+      writeFileSync(definitionPath, original);
+
+      const url = `https://docs.google.com/forms/d/e/${formId}/viewform`;
+      const { status, stderr } = runCli(['--url', url], workDir);
+
+      expect(status).toBe(1);
+      expect(stderr).toContain('--turnstile');
+      expect(stderr).toContain('--force');
+      // Guard must abort before the network fetch even starts
+      expect(stderr).not.toContain('Fetching form');
+      expect(readFileSync(definitionPath, 'utf8')).toBe(original);
+    } finally {
+      rmSync(workDir, { recursive: true, force: true });
+    }
   });
 });

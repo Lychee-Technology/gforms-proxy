@@ -4,7 +4,7 @@
  * FormDefinition JSON file to src/forms/<formId>.json.
  *
  * Usage:
- *   tsx scripts/gen-field-mapping.ts --url <viewform_url> [--gemini-key <key>]
+ *   tsx scripts/gen-field-mapping.ts --url <viewform_url> [--gemini-key <key>] [--turnstile] [--force]
  */
 import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';

@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 pnpm test                                  # run all tests (vitest run)
 pnpm vitest run src/lib/__tests__/schema.test.ts   # run a single test file
 pnpm test:watch                            # vitest watch mode
-pnpm exec tsc --noEmit                     # typecheck (no package script for this)
+pnpm typecheck                             # typecheck src (Workers types) and scripts (node types)
 pnpm dev                                   # wrangler dev (local Worker)
 pnpm deploy                                # wrangler deploy
 pnpm cf-types                              # regenerate Cloudflare binding types
