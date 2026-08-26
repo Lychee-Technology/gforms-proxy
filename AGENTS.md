@@ -68,3 +68,13 @@ during a task that is not code, must end up on GitHub, not only on disk.
 * Do not merge a PR unless I explicitly ask you to do so
 * When reviewing a PR, add findings / spec / standards / assessment / observations / verification / summary / etc. as a single comment to the PR
 * After a PR is merged, clean up local branches and worktrees, fast-forward main, then update and close related issues
+
+## Git conventions
+
+Never include AI attribution in commit messages, PR titles, or PR descriptions, in any form. That means no
+
+- `Co-Authored-By: Claude`
+- `Generated with ...` footers
+- sign-offs or footers naming an LLM or AI agent (OpenAI, GPT, Claude, Anthropic, and the like)
+
+When squash-merging, write a clean commit message that describes only the change itself.
