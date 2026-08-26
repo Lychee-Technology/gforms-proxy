@@ -8,7 +8,8 @@
  */
 import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { extractFormId, fetchAndParseForm } from '../src/lib/parser.js';
+import { pathToFileURL } from 'node:url';
+import { extractFormId, fetchAndParseForm, validateFormUrl } from '../src/lib/parser.js';
 import { buildJsonSchema, buildFieldMap } from '../src/lib/schema.js';
 import { buildFieldsMetaWithGemini } from './gemini.js';
 import { checkTurnstileDowngrade } from './turnstile-guard.js';
@@ -50,21 +51,21 @@ function parseArgs(argv: string[]): { url: string; geminiKey: string | null; tur
   return { url, geminiKey, turnstile, force };
 }
 
-async function main(): Promise<void> {
-  const { url, geminiKey, turnstile, force } = parseArgs(process.argv);
+export async function main(argv: string[] = process.argv): Promise<void> {
+  const { url, geminiKey, turnstile, force } = parseArgs(argv);
   const apiKey = geminiKey ?? process.env['GEMINI_API_KEY'] ?? null;
 
-  // Guard before fetching: formId is derived from the URL alone, so a doomed
-  // regeneration can abort without a network round-trip. An unrecognized URL
-  // yields '' and falls through to fetchAndParseForm's own error.
+  // Reject invalid URLs before the guard so they report as URL errors, not
+  // as a turnstile downgrade. Then guard before fetching: formId is derived
+  // from the URL alone, so a doomed regeneration can abort without a network
+  // round-trip.
+  validateFormUrl(url);
   const formId = extractFormId(url);
   const out = resolve(process.cwd(), 'src/forms', `${formId}.json`);
-  if (formId) {
-    const downgradeError = checkTurnstileDowngrade(out, { turnstile, force });
-    if (downgradeError) {
-      console.error(`Error: ${downgradeError}`);
-      process.exit(1);
-    }
+  const downgradeError = checkTurnstileDowngrade(out, { turnstile, force });
+  if (downgradeError) {
+    console.error(`Error: ${downgradeError}`);
+    process.exit(1);
   }
 
   console.error(`Fetching form: ${url}`);
@@ -103,7 +104,12 @@ async function main(): Promise<void> {
   console.error('  2. pnpm deploy');
 }
 
-main().catch((err: unknown) => {
-  console.error('Error:', err instanceof Error ? err.message : String(err));
-  process.exit(1);
-});
+const isMainModule =
+  process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (isMainModule) {
+  main().catch((err: unknown) => {
+    console.error('Error:', err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  });
+}
