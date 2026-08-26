@@ -217,8 +217,11 @@ describe('key deduplication', () => {
     ];
     const metas = [makeMeta('contact'), makeMeta('contact'), makeMeta('contact_2')];
     const fieldMap = buildFieldMap(fields, metas);
-    expect(Object.keys(fieldMap)).toHaveLength(3);
-    expect(Object.values(fieldMap)).toEqual(['entry.1', 'entry.2', 'entry.3']);
+    expect(fieldMap).toEqual({
+      contact: 'entry.1',
+      contact_2: 'entry.2',
+      contact_2_2: 'entry.3',
+    });
     const schema = buildJsonSchema({ formTitle: 'T', formId: 'id', fields }, metas);
     expect(Object.keys(schema.properties as Record<string, unknown>)).toEqual(
       Object.keys(fieldMap),

@@ -179,8 +179,10 @@ const RESERVED_KEYS = ['turnstile_token'];
  * when present, `field_N` fallback otherwise, then suffixed `_2`, `_3`, … on
  * collision (including collisions with reserved keys). Both buildFieldMap and
  * buildJsonSchema derive keys through this so they can never diverge.
+ * Always returns exactly `count` keys; callers' `??` fallbacks on indexed
+ * access exist only to satisfy noUncheckedIndexedAccess.
  */
-export function resolveFieldKeys(count: number, metas: FieldMeta[]): string[] {
+const resolveFieldKeys = (count: number, metas: FieldMeta[]): string[] => {
   const seen = new Set<string>(RESERVED_KEYS);
   const keys: string[] = [];
   for (let idx = 0; idx < count; idx++) {
@@ -191,7 +193,7 @@ export function resolveFieldKeys(count: number, metas: FieldMeta[]): string[] {
     keys.push(key);
   }
   return keys;
-}
+};
 
 export function buildFieldMap(
   fields: FieldDetail[],
