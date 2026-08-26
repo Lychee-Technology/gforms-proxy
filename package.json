@@ -8,6 +8,7 @@
     "deploy": "wrangler deploy",
     "test": "vitest run --reporter=verbose",
     "test:watch": "vitest",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.scripts.json",
     "cf-types": "wrangler types"
   },
   "keywords": [],

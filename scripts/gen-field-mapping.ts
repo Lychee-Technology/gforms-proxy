@@ -4,20 +4,27 @@
  * FormDefinition JSON file to src/forms/<formId>.json.
  *
  * Usage:
- *   tsx scripts/gen-field-mapping.ts --url <viewform_url> [--gemini-key <key>]
+ *   tsx scripts/gen-field-mapping.ts --url <viewform_url> [--gemini-key <key>] [--turnstile] [--force]
  */
 import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { fetchAndParseForm } from '../src/lib/parser.js';
+import { pathToFileURL } from 'node:url';
+import { extractFormId, fetchAndParseForm, validateFormUrl } from '../src/lib/parser.js';
 import { buildJsonSchema, buildFieldMap } from '../src/lib/schema.js';
 import { buildFieldsMetaWithGemini } from './gemini.js';
+import { checkTurnstileDowngrade } from './turnstile-guard.js';
 import type { FormDefinition } from '../src/lib/types.js';
 
-function parseArgs(argv: string[]): { url: string; geminiKey: string | null; turnstile: boolean } {
+function printUsage(): void {
+  console.error('Usage: tsx scripts/gen-field-mapping.ts --url <viewform_url> [--gemini-key <key>] [--turnstile] [--force]');
+}
+
+function parseArgs(argv: string[]): { url: string; geminiKey: string | null; turnstile: boolean; force: boolean } {
   const args = argv.slice(2);
   let url = '';
   let geminiKey: string | null = null;
   let turnstile = false;
+  let force = false;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -27,20 +34,39 @@ function parseArgs(argv: string[]): { url: string; geminiKey: string | null; tur
       geminiKey = args[++i] ?? null;
     } else if (arg === '--turnstile') {
       turnstile = true;
+    } else if (arg === '--force') {
+      force = true;
+    } else {
+      console.error(`Unknown argument: ${arg}`);
+      printUsage();
+      process.exit(1);
     }
   }
 
   if (!url) {
-    console.error('Usage: tsx scripts/gen-field-mapping.ts --url <viewform_url> [--gemini-key <key>] [--turnstile]');
+    printUsage();
     process.exit(1);
   }
 
-  return { url, geminiKey, turnstile };
+  return { url, geminiKey, turnstile, force };
 }
 
-async function main(): Promise<void> {
-  const { url, geminiKey, turnstile } = parseArgs(process.argv);
+export async function main(argv: string[] = process.argv): Promise<void> {
+  const { url, geminiKey, turnstile, force } = parseArgs(argv);
   const apiKey = geminiKey ?? process.env['GEMINI_API_KEY'] ?? null;
+
+  // Reject invalid URLs before the guard so they report as URL errors, not
+  // as a turnstile downgrade. Then guard before fetching: formId is derived
+  // from the URL alone, so a doomed regeneration can abort without a network
+  // round-trip.
+  validateFormUrl(url);
+  const formId = extractFormId(url);
+  const out = resolve(process.cwd(), 'src/forms', `${formId}.json`);
+  const downgradeError = checkTurnstileDowngrade(out, { turnstile, force });
+  if (downgradeError) {
+    console.error(`Error: ${downgradeError}`);
+    process.exit(1);
+  }
 
   console.error(`Fetching form: ${url}`);
   const rawData = await fetchAndParseForm(url);
@@ -69,7 +95,6 @@ async function main(): Promise<void> {
     ...(turnstile && { turnstileEnabled: true }),
   };
 
-  const out = resolve(process.cwd(), 'src/forms', `${rawData.formId}.json`);
   writeFileSync(out, JSON.stringify(definition, null, 2) + '\n');
   console.error(`\nFormDefinition written to: ${out}`);
   console.error('\nNext steps:');
@@ -79,7 +104,12 @@ async function main(): Promise<void> {
   console.error('  2. pnpm deploy');
 }
 
-main().catch((err: unknown) => {
-  console.error('Error:', err instanceof Error ? err.message : String(err));
-  process.exit(1);
-});
+const isMainModule =
+  process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (isMainModule) {
+  main().catch((err: unknown) => {
+    console.error('Error:', err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  });
+}
