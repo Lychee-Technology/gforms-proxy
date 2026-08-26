@@ -11,13 +11,15 @@ import { resolve } from 'node:path';
 import { fetchAndParseForm } from '../src/lib/parser.js';
 import { buildJsonSchema, buildFieldMap } from '../src/lib/schema.js';
 import { buildFieldsMetaWithGemini } from './gemini.js';
+import { checkTurnstileDowngrade } from './turnstile-guard.js';
 import type { FormDefinition } from '../src/lib/types.js';
 
-function parseArgs(argv: string[]): { url: string; geminiKey: string | null; turnstile: boolean } {
+function parseArgs(argv: string[]): { url: string; geminiKey: string | null; turnstile: boolean; force: boolean } {
   const args = argv.slice(2);
   let url = '';
   let geminiKey: string | null = null;
   let turnstile = false;
+  let force = false;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -27,24 +29,33 @@ function parseArgs(argv: string[]): { url: string; geminiKey: string | null; tur
       geminiKey = args[++i] ?? null;
     } else if (arg === '--turnstile') {
       turnstile = true;
+    } else if (arg === '--force') {
+      force = true;
     }
   }
 
   if (!url) {
-    console.error('Usage: tsx scripts/gen-field-mapping.ts --url <viewform_url> [--gemini-key <key>] [--turnstile]');
+    console.error('Usage: tsx scripts/gen-field-mapping.ts --url <viewform_url> [--gemini-key <key>] [--turnstile] [--force]');
     process.exit(1);
   }
 
-  return { url, geminiKey, turnstile };
+  return { url, geminiKey, turnstile, force };
 }
 
 async function main(): Promise<void> {
-  const { url, geminiKey, turnstile } = parseArgs(process.argv);
+  const { url, geminiKey, turnstile, force } = parseArgs(process.argv);
   const apiKey = geminiKey ?? process.env['GEMINI_API_KEY'] ?? null;
 
   console.error(`Fetching form: ${url}`);
   const rawData = await fetchAndParseForm(url);
   console.error(`Found ${rawData.fields.length} fields in: ${rawData.formTitle}`);
+
+  const out = resolve(process.cwd(), 'src/forms', `${rawData.formId}.json`);
+  const downgradeError = checkTurnstileDowngrade(out, { turnstile, force });
+  if (downgradeError) {
+    console.error(`\nError: ${downgradeError}`);
+    process.exit(1);
+  }
 
   const metas = await buildFieldsMetaWithGemini(rawData.fields.map((f) => f.label), apiKey);
   const baseSchema = buildJsonSchema(rawData, metas);
@@ -69,7 +80,6 @@ async function main(): Promise<void> {
     ...(turnstile && { turnstileEnabled: true }),
   };
 
-  const out = resolve(process.cwd(), 'src/forms', `${rawData.formId}.json`);
   writeFileSync(out, JSON.stringify(definition, null, 2) + '\n');
   console.error(`\nFormDefinition written to: ${out}`);
   console.error('\nNext steps:');
