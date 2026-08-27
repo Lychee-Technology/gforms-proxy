@@ -1,6 +1,6 @@
-# Inside Google Form Data (Drafted from `gen-field-mapping.ts`)
+# Inside Google Forms data
 
-This note documents the parts of Google Forms HTML the script relies on: the `FB_PUBLIC_LOAD_DATA_` payload, question nodes, type codes, options layout, and validation payloads. It is derived from `scripts/gen-field-mapping.ts`.
+This note documents the parts of the Google Forms HTML that `scripts/gen-field-mapping.ts` relies on: the `FB_PUBLIC_LOAD_DATA_` payload, question nodes, type codes, options layout, and validation payloads. The format is reverse engineered from the script, not from any Google documentation.
 
 ## Locating the form payload
 - The public form HTML contains a `<script>` with a global array: `var FB_PUBLIC_LOAD_DATA_ = [...]`.
@@ -93,4 +93,4 @@ Code → operator:
 - Text rules map to `format: email | uri` or to substring regexes via `pattern` / `not`.
 - Regex rules map directly to `pattern` or `not: { pattern }`.
 - Multiple patterns are combined under `allOf` to avoid overwriting existing `pattern`.
-- Validation is only applied when compatible with the property’s current type (e.g., string-only operators won’t overwrite a non-string schema).
+- Validation is only applied when compatible with the property's current type (e.g., string-only operators won't overwrite a non-string schema).
