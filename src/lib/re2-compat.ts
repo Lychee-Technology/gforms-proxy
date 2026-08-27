@@ -14,10 +14,9 @@
  *
  * Verified-identical and kept as-is: literals, \d \D \w \W (ASCII in both),
  * \b \B outside classes, \t \n \r \f \v, two-digit \xHH, ^ $ (end of text in
- * both without flags), alternation, character classes and ranges, capturing
- * and (?: groups. At most one single-atom quantifier is accepted; unbounded
- * quantifiers additionally require a leading ^ anchor and no top-level
- * alternation.
+ * both without flags), character classes and ranges, capturing and (?:
+ * groups. At most one single-atom quantifier is accepted; unbounded
+ * quantifiers additionally require a leading ^ anchor.
  *
  * Translated exactly: `.` becomes [^\n] (RE2's dot also matches \r and
  * Unicode line separators); \s / \S become RE2's ASCII class [\t\n\f\r ]
@@ -28,8 +27,9 @@
  *
  * Everything else returns null: inline flags, \A \z \Q...\E \p \C \a, braced
  * hex and octal/backreference digit escapes, POSIX classes, lookarounds,
- * named groups, and lone surrogate code units. Well-formed surrogate pairs
- * are preserved and become one code-point atom under the u flag.
+ * named groups, alternation, and lone surrogate code units. Well-formed
+ * surrogate pairs are preserved and become one code-point atom under the u
+ * flag.
  */
 
 export const JS_REGEX_FLAGS = 'u';
@@ -39,8 +39,9 @@ export const JS_REGEX_FLAGS = 'u';
 // excludes \r and Unicode line separators.
 const DOT = '[^\\n]';
 const RE2_SPACE = '\\t\\n\\f\\r ';
-// {n} {n,} {n,m} — the only brace forms both engines read as quantifiers.
-const QUANTIFIER = /^\{(\d+)(?:,(\d*))?\}/;
+// RE2 decimal counts are 0 or a nonzero digit followed by digits. Brace forms
+// with leading zeroes are literals rather than quantifiers.
+const QUANTIFIER = /^\{(0|[1-9]\d*)(?:,(0|[1-9]\d*)?)?\}/;
 const RE2_MAX_REPEAT = 1000;
 
 const isHexPair = (s: string): boolean => /^[0-9A-Fa-f]{2}$/.test(s);
@@ -53,10 +54,7 @@ export function toJavaScriptRegexSource(pattern: string): string | null {
   let out = '';
   let inClass = false;
   let repetitionSeen = false;
-  let unboundedRepetitionSeen = false;
   let canBeLazy = false;
-  let groupDepth = 0;
-  let topLevelAlternation = false;
   let quantifiable: 'atom' | 'group' | null = null;
   for (let i = 0; i < pattern.length; ) {
     const ch = pattern[i] as string;
@@ -91,7 +89,6 @@ export function toJavaScriptRegexSource(pattern: string): string | null {
           ch === '*' || ch === '+' || quantifier.endsWith(',}');
         if (unbounded && !pattern.startsWith('^')) return null;
         repetitionSeen = true;
-        unboundedRepetitionSeen = unbounded;
         out += quantifier;
         i += quantifier.length;
         canBeLazy = true;
@@ -162,17 +159,14 @@ export function toJavaScriptRegexSource(pattern: string): string | null {
       if (pattern[i + 2] !== ':') return null;
       out += '(?:';
       i += 3;
-      groupDepth++;
       quantifiable = null;
     } else if (ch === '(') {
       out += ch;
       i++;
-      groupDepth++;
       quantifiable = null;
     } else if (ch === ')') {
       out += ch;
       i++;
-      if (groupDepth > 0) groupDepth--;
       quantifiable = 'group';
     } else if (ch === '{') {
       // Any brace form not consumed as a quantifier is a literal in RE2,
@@ -186,10 +180,7 @@ export function toJavaScriptRegexSource(pattern: string): string | null {
       i++;
       quantifiable = 'atom';
     } else if (ch === '|') {
-      out += ch;
-      i++;
-      if (groupDepth === 0) topLevelAlternation = true;
-      quantifiable = null;
+      return null;
     } else if (ch === '^' || ch === '$') {
       out += ch;
       i++;
@@ -200,7 +191,5 @@ export function toJavaScriptRegexSource(pattern: string): string | null {
       quantifiable = 'atom';
     }
   }
-  return inClass || (unboundedRepetitionSeen && topLevelAlternation)
-    ? null
-    : out;
+  return inClass ? null : out;
 }

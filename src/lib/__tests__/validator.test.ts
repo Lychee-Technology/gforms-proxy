@@ -509,6 +509,32 @@ describe('validate — unsafe backtracking patterns', () => {
 
     expect(validate({ code: 'x' }, schema)).toEqual([]);
   });
+
+  test('skips ambiguous alternation without executing it natively', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const nativeTest = RegExp.prototype.test;
+    let dangerousPatternExecuted = false;
+    vi.spyOn(RegExp.prototype, 'test').mockImplementation(function (
+      this: RegExp,
+      value: string,
+    ) {
+      if (this.source.includes('(?:a|aa)')) {
+        dangerousPatternExecuted = true;
+        return false;
+      }
+      return nativeTest.call(this, value);
+    });
+    const pattern = '^' + '(?:a|aa)'.repeat(30) + 'b$';
+    const schema = {
+      type: 'object',
+      properties: { code: { type: 'string', pattern } },
+    };
+    const startedAt = performance.now();
+
+    expect(validate({ code: `${'a'.repeat(60)}c` }, schema)).toEqual([]);
+    expect(dangerousPatternExecuted).toBe(false);
+    expect(performance.now() - startedAt).toBeLessThan(1000);
+  });
 });
 
 describe('validate — patterns that pass translation but fail to compile', () => {

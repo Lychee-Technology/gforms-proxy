@@ -69,6 +69,18 @@ describe('findSchemaPatternIssues', () => {
     ]);
   });
 
+  test('reports ambiguous alternation as outside the safe subset', () => {
+    const pattern = '^' + '(?:a|aa)'.repeat(30) + 'b$';
+
+    expect(findSchemaPatternIssues({ pattern })).toEqual([
+      {
+        path: '$.pattern',
+        pattern,
+        reason: 'outside safe RE2 subset',
+      },
+    ]);
+  });
+
   test('ignores non-string pattern values', () => {
     expect(
       findSchemaPatternIssues({

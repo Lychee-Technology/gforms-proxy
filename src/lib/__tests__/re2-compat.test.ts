@@ -15,7 +15,8 @@ describe('toJavaScriptRegexSource — verified-identical constructs pass through
     'a{2}',
     'a{1000}',
     '^a+?$',
-    '^(?:foo|bar)a+$',
+    '^a\\|b$',
+    '^[|]$',
     '\\x41\\t\\n',
     '[^0-9-]',
   ])('%s stays evaluable', (pattern) => {
@@ -92,6 +93,20 @@ describe('toJavaScriptRegexSource \u2014 code-point semantics (RE2 matches code 
     expect(quant.test('a{2,3}')).toBe(false);
   });
 
+  test.each(['{01}', '{1,02}', '{01,2}'])(
+    '%s is literal text rather than a counted repetition',
+    (braces) => {
+      const literal = `a${braces}`;
+      expect(compile(`^${literal}$`).test(literal)).toBe(true);
+    },
+  );
+
+  test('valid RE2 counted repetitions retain quantifier semantics', () => {
+    expect(compile('^a{0}$').test('')).toBe(true);
+    expect(compile('^a{1,2}$').test('aa')).toBe(true);
+    expect(compile('^a{1000}$').test('a'.repeat(1000))).toBe(true);
+  });
+
   test('escaped punctuation survives the stricter compile', () => {
     expect(compile('^\\-\\!$').test('-!')).toBe(true);
     expect(compile('^a\\\\z$').test('a\\z')).toBe(true);
@@ -106,6 +121,8 @@ describe('toJavaScriptRegexSource — everything else is rejected, not guessed',
     'a+',
     '^x|a+$',
     '^a+|x$',
+    'a|b',
+    '^(?:foo|bar)a+$',
     'a{1001}',
     'a{1,1001}',
     'a{1,999999999999999999999999999}',
@@ -131,5 +148,13 @@ describe('toJavaScriptRegexSource — everything else is rejected, not guessed',
     '\uDE00',
   ])('%s returns null', (pattern) => {
     expect(toJavaScriptRegexSource(pattern)).toBeNull();
+  });
+
+  test('rejects repeated ambiguous alternations without native execution', () => {
+    const pattern = '^' + '(?:a|aa)'.repeat(30) + 'b$';
+    const startedAt = performance.now();
+
+    expect(toJavaScriptRegexSource(pattern)).toBeNull();
+    expect(performance.now() - startedAt).toBeLessThan(1000);
   });
 });
