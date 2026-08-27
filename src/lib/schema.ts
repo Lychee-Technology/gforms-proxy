@@ -141,12 +141,12 @@ const applyValidationToSchema = (
         case 'url': schema.format = 'uri'; break;
         case 'contains': {
           const v = validation.values[0];
-          if (v) addPattern(schema, `.*${escapeRegExp(v)}.*`);
+          if (v) addPattern(schema, escapeRegExp(v));
           break;
         }
         case 'does_not_contain': {
           const v = validation.values[0];
-          if (v) addNotConstraint(schema, { pattern: `.*${escapeRegExp(v)}.*` });
+          if (v) addNotConstraint(schema, { pattern: escapeRegExp(v) });
           break;
         }
       }

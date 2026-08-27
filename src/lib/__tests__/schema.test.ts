@@ -297,3 +297,34 @@ describe('regular_expression validation anchoring', () => {
     expect(validate({ field_1: 'abc1x' }, schema as Record<string, unknown>)).toEqual([]);
   });
 });
+
+describe('text contains validation', () => {
+  const build = (operator: 'contains' | 'does_not_contain') => {
+    const field: FieldDetail = {
+      label: 'Code',
+      entryId: 'entry.8',
+      typeCode: 0,
+      typeLabel: 'short_answer',
+      options: [],
+      required: false,
+      validation: { type: 'text', operator, values: ['a.b'] },
+    };
+    return buildJsonSchema({ formTitle: 'T', formId: 'id', fields: [field] });
+  };
+
+  test('contains emits only the escaped literal and validates by partial match', () => {
+    const schema = build('contains');
+    expect((schema.properties as any).field_1.pattern).toBe('a\\.b');
+    expect(validate({ field_1: 'prefix a.b suffix' }, schema)).toEqual([]);
+    expect(validate({ field_1: 'prefix acb suffix' }, schema)).toHaveLength(1);
+  });
+
+  test('does_not_contain inverts only the escaped literal partial match', () => {
+    const schema = build('does_not_contain');
+    expect((schema.properties as any).field_1.allOf).toEqual([
+      { not: { pattern: 'a\\.b' } },
+    ]);
+    expect(validate({ field_1: 'prefix a.b suffix' }, schema)).toHaveLength(1);
+    expect(validate({ field_1: 'prefix acb suffix' }, schema)).toEqual([]);
+  });
+});

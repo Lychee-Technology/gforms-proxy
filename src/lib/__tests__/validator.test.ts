@@ -462,6 +462,53 @@ describe('validate — patterns are evaluated with RE2 semantics', () => {
     expect(validate({ code: '\u{1F600}' }, schema)).toEqual([]);
     expect(validate({ code: '\u{1F600}\u{1F600}' }, schema)).toHaveLength(1);
   });
+
+  test('a compatible emoji literal accepts that emoji and rejects another value', () => {
+    const schema = {
+      type: 'object',
+      properties: { code: { type: 'string', pattern: '^(?:😀)$' } },
+    };
+    expect(validate({ code: '😀' }, schema)).toEqual([]);
+    expect(validate({ code: 'x' }, schema)).toHaveLength(1);
+  });
+});
+
+describe('validate — unsafe backtracking patterns', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  test('skips a nested repetition immediately, caches it, and still applies minLength', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const schema = {
+      type: 'object',
+      properties: {
+        code: { type: 'string', pattern: '^(?:(q+)+)$', minLength: 3 },
+      },
+    };
+    const hostileValue = `${'q'.repeat(100)}x`;
+
+    expect(validate({ code: hostileValue }, schema)).toEqual([]);
+    expect(validate({ code: 'x' }, schema)).toEqual([
+      { field: 'code', message: 'must be at least 3 character(s)' },
+    ]);
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  test('skips the whole inverted constraint when its pattern is unsafe', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const schema = {
+      type: 'object',
+      properties: {
+        code: {
+          type: 'string',
+          allOf: [{ not: { pattern: '^(?:(r+)+)$', minLength: 1 } }],
+        },
+      },
+    };
+
+    expect(validate({ code: 'x' }, schema)).toEqual([]);
+  });
 });
 
 describe('validate — patterns that pass translation but fail to compile', () => {
