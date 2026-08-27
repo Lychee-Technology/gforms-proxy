@@ -1,3 +1,5 @@
+import { toJavaScriptRegexSource } from './re2-compat.js';
+
 export interface ValidationError {
   field: string;
   message: string;
@@ -25,41 +27,22 @@ function checkType(value: unknown, type: string): boolean {
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const URI_RE = /^https?:\/\/.+/;
 
-// Google Forms patterns use RE2 syntax; constructs like `(?i)` don't compile
-// in JavaScript. An uncompilable pattern is cached as null and its check
-// skipped — Google remains the final judge for those values.
+// Google Forms patterns use RE2 syntax. Each pattern is translated into
+// JavaScript source with identical semantics (see re2-compat.ts); a pattern
+// outside the verified subset, or one that still fails to compile, is cached
+// as null and its check skipped — Google remains the final judge.
 const patternCache = new Map<string, RegExp | null>();
-
-// Valid RE2 constructs that new RegExp() accepts with a different meaning:
-// \A / \z anchors, \Q...\E quoting, \p / \P classes (no `u` flag here), \C,
-// \a (BEL, JavaScript reads literal a), braced hex escapes like \x{41}
-// (JavaScript reads a quantified x), and POSIX classes like [[:alpha:]].
-// Misreading them would reject values Google accepts, so they are treated
-// as unevaluable like uncompilable ones.
-const RE2_DIVERGENT_ESCAPES = 'aAzZQEpPC';
-const POSIX_CLASS_RE = /\[:\^?[a-zA-Z]+:\]/;
-
-function hasDivergentRe2Syntax(pattern: string): boolean {
-  for (let i = 0; i < pattern.length; i++) {
-    if (pattern[i] === '\\') {
-      const next = pattern[i + 1];
-      if (next !== undefined && RE2_DIVERGENT_ESCAPES.includes(next)) return true;
-      if (next === 'x' && pattern[i + 2] === '{') return true;
-      i++;
-    }
-  }
-  return POSIX_CLASS_RE.test(pattern);
-}
 
 function getPattern(pattern: string): RegExp | null {
   let re = patternCache.get(pattern);
   if (re === undefined) {
-    if (hasDivergentRe2Syntax(pattern)) {
-      console.warn(`Skipping pattern with RE2-only semantics: ${pattern}`);
+    const source = toJavaScriptRegexSource(pattern);
+    if (source === null) {
+      console.warn(`Skipping pattern outside the JavaScript-compatible RE2 subset: ${pattern}`);
       re = null;
     } else {
       try {
-        re = new RegExp(pattern);
+        re = new RegExp(source);
       } catch {
         console.warn(`Skipping uncompilable pattern: ${pattern}`);
         re = null;

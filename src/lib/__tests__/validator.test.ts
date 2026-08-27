@@ -400,3 +400,45 @@ describe('validate — RE2 constructs that compile in JavaScript with different 
     expect(validate({ code: 'fooz' }, schema)).toEqual([]);
   });
 });
+
+describe('validate — patterns are evaluated with RE2 semantics', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  test('a matches-style dot pattern accepts U+2028 and \\r like RE2 does', () => {
+    const schema = {
+      type: 'object',
+      properties: { code: { type: 'string', pattern: '^(?:.)$' } },
+    };
+    expect(validate({ code: ' ' }, schema)).toEqual([]);
+    expect(validate({ code: '\r' }, schema)).toEqual([]);
+    expect(validate({ code: '\n' }, schema)).toHaveLength(1);
+  });
+
+  test('dot matches a full non-BMP code point like RE2 does', () => {
+    const schema = {
+      type: 'object',
+      properties: { code: { type: 'string', pattern: '^(?:.)$' } },
+    };
+    expect(validate({ code: '\u{1F600}' }, schema)).toEqual([]);
+  });
+
+  test('\\s uses RE2 ASCII semantics, not JavaScript Unicode whitespace', () => {
+    const schema = {
+      type: 'object',
+      properties: { code: { type: 'string', pattern: '^\\s$' } },
+    };
+    expect(validate({ code: ' ' }, schema)).toEqual([]);
+    expect(validate({ code: ' ' }, schema)).toHaveLength(1);
+  });
+
+  test('constructs outside the verified subset are skipped, not guessed', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const schema = {
+      type: 'object',
+      properties: { code: { type: 'string', pattern: '(?P<year>19\\d\\d)' } },
+    };
+    expect(validate({ code: 'anything' }, schema)).toEqual([]);
+  });
+});
