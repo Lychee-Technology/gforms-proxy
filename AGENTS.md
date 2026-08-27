@@ -9,10 +9,13 @@ pnpm test                                  # run all tests (vitest run)
 pnpm vitest run src/lib/__tests__/schema.test.ts   # run a single test file
 pnpm test:watch                            # vitest watch mode
 pnpm typecheck                             # typecheck src (Workers types) and scripts (node types)
+pnpm validate:forms                        # validate registered form definitions
 pnpm dev                                   # wrangler dev (local Worker)
-pnpm deploy                                # wrangler deploy
+pnpm run deploy                            # validate registered forms, then run Wrangler deploy
 pnpm cf-types                              # regenerate Cloudflare binding types
 ```
+
+Use `pnpm run deploy`, not `pnpm deploy`, so the project deploy script validates every registered form before invoking Wrangler.
 
 Generate a form definition (writes `src/forms/<formId>.json`):
 
