@@ -40,7 +40,8 @@ export const JS_REGEX_FLAGS = 'u';
 const DOT = '[^\\n]';
 const RE2_SPACE = '\\t\\n\\f\\r ';
 // {n} {n,} {n,m} — the only brace forms both engines read as quantifiers.
-const QUANTIFIER = /^\{\d+(?:,\d*)?\}/;
+const QUANTIFIER = /^\{(\d+)(?:,(\d*))?\}/;
+const RE2_MAX_REPEAT = 1000;
 
 const isHexPair = (s: string): boolean => /^[0-9A-Fa-f]{2}$/.test(s);
 const isAsciiPunct = (c: string): boolean =>
@@ -71,10 +72,21 @@ export function toJavaScriptRegexSource(pattern: string): string | null {
 
     if (!inClass) {
       const braceQuantifier =
-        ch === '{' ? QUANTIFIER.exec(pattern.slice(i))?.[0] : undefined;
-      const quantifier = '*+?'.includes(ch) ? ch : braceQuantifier;
+        ch === '{' ? QUANTIFIER.exec(pattern.slice(i)) : null;
+      const quantifier = '*+?'.includes(ch) ? ch : braceQuantifier?.[0];
       if (quantifier !== undefined) {
         if (repetitionSeen || quantifiable !== 'atom') return null;
+        if (
+          braceQuantifier &&
+          [braceQuantifier[1], braceQuantifier[2]].some(
+            (bound) =>
+              bound !== undefined &&
+              bound !== '' &&
+              Number(bound) > RE2_MAX_REPEAT,
+          )
+        ) {
+          return null;
+        }
         const unbounded =
           ch === '*' || ch === '+' || quantifier.endsWith(',}');
         if (unbounded && !pattern.startsWith('^')) return null;
