@@ -2,7 +2,7 @@
 
 **Status:** Accepted
 **Date:** 2026-05-24
-**Source:** design spec "Auto-generate output path in gen-field-mapping.ts" (2026-05-24), superseding the `--out` flag from the "Form Submission Proxy" spec (2026-05-23); working copies in `docs/superpowers/specs/`, which is gitignored and local only
+**Source:** design spec "Auto-generate output path in gen-field-mapping.ts" (2026-05-24), superseding the `--out` flag from the "Form Submission Proxy" spec (2026-05-23); working copies in `docs/superpowers/specs/`
 
 ## Context
 

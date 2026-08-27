@@ -2,7 +2,7 @@
 
 **Status:** Accepted
 **Date:** 2026-05-23
-**Source:** design spec "Form Submission Proxy" (2026-05-23); working copy in `docs/superpowers/specs/`, which is gitignored and local only
+**Source:** design spec "Form Submission Proxy" (2026-05-23); working copy in `docs/superpowers/specs/`
 
 ## Context
 

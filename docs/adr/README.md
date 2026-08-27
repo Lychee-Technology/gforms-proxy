@@ -1,6 +1,6 @@
 # Architecture Decision Records
 
-These ADRs record the decisions made in the project's design specs. The specs themselves live in `docs/superpowers/specs/`, which is gitignored and local only, so the ADRs are the durable record. Each one covers a single decision, the context at the time, and what followed from it.
+These ADRs record the decisions made in the project's design specs, whose working copies live in `docs/superpowers/specs/`. Per `AGENTS.md`, `docs/` is where decisions become durable; the ADRs stand on their own without the specs. Each one covers a single decision, the context at the time, and what followed from it.
 
 | ADR | Decision |
 |-----|----------|
