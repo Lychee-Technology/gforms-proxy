@@ -10,6 +10,7 @@ import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { extractFormId, fetchAndParseForm, validateFormUrl } from '../src/lib/parser.js';
+import { assertDeployablePatterns } from '../src/lib/pattern-policy.js';
 import { buildJsonSchema, buildFieldMap } from '../src/lib/schema.js';
 import { buildFieldsMetaWithGemini } from './gemini.js';
 import { checkTurnstileDowngrade } from './turnstile-guard.js';
@@ -84,6 +85,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         required: [...((baseSchema.required as string[]) ?? []), 'turnstile_token'],
       }
     : baseSchema;
+  assertDeployablePatterns(rawData.formId, schema);
   const fieldMap = buildFieldMap(rawData.fields, metas);
   const submissionUrl = `https://docs.google.com/forms/d/e/${rawData.formId}/formResponse`;
 
