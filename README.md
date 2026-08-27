@@ -1,47 +1,24 @@
 # Google Forms Proxy
 
-A proxy service that transforms Google Forms into structured JSON Schema APIs, enabling programmatic form access and AI-powered form filling.
+A Cloudflare Worker that puts a JSON Schema API in front of Google Forms, so programs and LLMs can read a form's structure and submit responses without ever touching Google's UI.
 
 ## Use cases
 
 ### Website for small business
 
-For 99% of small businesses, websites can easily run on Cloudflare Pages. However, they almost always need some type of forms for customer interaction. Paying extra for form hosting doesn't make sense when Google Forms is so powerful and easy to use. However, embedding Google Forms directly makes the website feel cheap.
+For 99% of small businesses, a website can run on Cloudflare Pages, but it almost always needs a form for customer interaction. Paying for form hosting is hard to justify when Google Forms already does the job, and embedding a Google Form directly makes the site feel cheap.
 
-This project solves that by:
-- Fetching Google Forms HTML and extracting the form structure
-- Converting form fields into a JSON Schema for programmatic access
-- Providing a clean API layer that hides the Google Forms embedding
+This proxy fetches the form's HTML, extracts its structure, converts the fields into a JSON Schema, and puts a clean API in front, so the website never embeds Google Forms at all.
 
 ### Use AI to fill the forms
 
-This project can be combined with AI to automatically fill Google Forms:
-
-- **Form Schema Extraction**: Parse Google Forms HTML to extract questions, types, options, and validation rules
-- **JSON Schema Generation**: Convert form structure into a formal JSON Schema (Draft 2020-12)
-- **AI Integration**: Use Gemini or other LLMs to:
-  - Translate form questions to English
-  - Generate concise metadata (titles, keys, translations)
-  - Map form fields to structured data
-- **Programmatic Submission**: Use the schema to validate and format data before submission
+The same schema makes forms fillable by AI. The proxy parses a form's HTML into questions, types, options, and validation rules, and expresses them as a JSON Schema (Draft 2020-12). An LLM such as Gemini can then translate the questions to English, generate concise metadata (titles, keys, translations), and map user data onto the form's fields; the schema validates the result before anything is submitted.
 
 ## How it works
 
-The project extracts form structure from Google Forms HTML:
+The proxy fetches the form's HTML and locates the `FB_PUBLIC_LOAD_DATA_` global variable, then parses the question entries embedded in it. For each question it extracts the label and help text, the field type (short answer, paragraph, multiple choice, checkboxes, dropdown, linear scale, date, time, grids), the options for choice-based questions, the required flag, and any validation rules (number ranges, text patterns, length limits, regex).
 
-1. **Fetches the form HTML** and locates the `FB_PUBLIC_LOAD_DATA_` global variable
-2. **Parses question entries** from the embedded data structure
-3. **Extracts field metadata** including:
-   - Question labels and help text
-   - Field types (short answer, paragraph, multiple choice, checkboxes, dropdown, linear scale, date, time, grids)
-   - Options for choice-based questions
-   - Required flags
-   - Validation rules (number ranges, text patterns, length limits, regex)
-4. **Generates JSON Schema** with:
-   - Proper types and constraints
-   - Validation rules mapped to JSON Schema keywords
-   - Required field declarations
-   - Form metadata (title, description, ID)
+From that it generates a JSON Schema: types and constraints per field, validation rules mapped to JSON Schema keywords, required field declarations, and the form's metadata (title, description, ID).
 
 ## Supported question types
 
@@ -88,20 +65,20 @@ Generate a form definition (writes `src/forms/<formId>.json`):
 pnpm exec tsx scripts/gen-field-mapping.ts --url <viewform_url> [--gemini-key <key>] [--turnstile] [--force]
 ```
 
-`--gemini-key` (or the `GEMINI_API_KEY` env var) enables Gemini-generated field keys and translations; without it, field keys fall back to mechanical `field_N` names. `--turnstile` marks the form as Turnstile-protected; regenerating a Turnstile-protected form without that flag aborts unless you pass `--force`.
+`--gemini-key` (or the `GEMINI_API_KEY` env var) enables Gemini-generated field keys and translations; without it, field keys fall back to mechanical `field_N` names. `--turnstile` marks the form as Turnstile-protected. If you regenerate a Turnstile-protected form without that flag, the script aborts unless you pass `--force`.
 
 To let the Worker accept submissions for the form, register it: add a JSON import and a `Map` entry in `src/forms/registry.ts`, then deploy (see `docs/adr/0001-static-bundled-form-registry.md`).
 
 ### API
 
-`GET /schema?url=<viewform_url>` (or `POST /schema` with body `{ "url": "..." }`) fetches any public Google Form and returns its JSON Schema (Draft 2020-12). This path is stateless — no registration needed.
+`GET /schema?url=<viewform_url>` (or `POST /schema` with body `{ "url": "..." }`) fetches any public Google Form and returns its JSON Schema (Draft 2020-12). This path is stateless and needs no registration.
 
 `POST /api/v1/forms/:formId/responses` accepts a JSON body for a pre-registered form, validates it against the stored schema, verifies Turnstile when the definition requires it, and forwards the data to Google's `formResponse` endpoint. Responses:
 
-- `200` — `{ "success": true }`, submitted to Google
-- `400` — `{ "error": "Validation failed", "details": [{ "field": "...", "message": "..." }] }` for schema violations; also returned for an invalid JSON body or a failed Turnstile check
-- `404` — unknown `formId`
-- `502` — Google rejected the submission
+- `200`: `{ "success": true }` once Google accepts the submission
+- `400`: `{ "error": "Validation failed", "details": [{ "field": "...", "message": "..." }] }` when the body violates the schema; an invalid JSON body or a failed Turnstile check also gets a 400
+- `404`: the `formId` is not registered
+- `502`: Google rejected the submission
 
 ## Output example
 
@@ -134,5 +111,5 @@ The generator writes a `FormDefinition`: the form's JSON Schema plus a `fieldMap
 
 ## Project structure
 
-- `scripts/gen-field-mapping.ts` - Main script for parsing Google Forms and generating JSON Schema
-- `google-forms-internals.md` - Detailed documentation of Google Forms HTML structure and parsing logic 
+- `scripts/gen-field-mapping.ts` - parses a Google Form and writes its `FormDefinition`
+- `google-forms-internals.md` - notes on Google Forms' HTML structure and the parsing logic
