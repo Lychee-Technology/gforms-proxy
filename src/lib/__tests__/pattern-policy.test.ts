@@ -43,8 +43,19 @@ describe('findSchemaPatternIssues', () => {
     ]);
     expect(() => assertDeployablePatterns('nested-form', schema)).toThrow(
       'Form nested-form contains patterns that cannot be deployed:\n' +
-        '- $.properties.code.pattern: outside safe RE2 subset: "\\\\p{L}"\n' +
-        '- $.properties.code.allOf[0].not.pattern: outside safe RE2 subset: "[a-z"',
+        '- $.properties.code.pattern: outside safe RE2 subset: \\p{L}\n' +
+        '- $.properties.code.allOf[0].not.pattern: outside safe RE2 subset: [a-z',
+    );
+  });
+
+  test('escapes pattern line breaks without adding quotes', () => {
+    expect(() =>
+      assertDeployablePatterns('multiline-form', {
+        pattern: 'first\r\nsecond\\p{L}',
+      }),
+    ).toThrow(
+      'Form multiline-form contains patterns that cannot be deployed:\n' +
+        '- $.pattern: outside safe RE2 subset: first\\r\\nsecond\\p{L}',
     );
   });
 

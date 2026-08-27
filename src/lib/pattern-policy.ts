@@ -70,10 +70,12 @@ export function assertDeployablePatterns(formId: string, schema: unknown): void 
   if (issues.length === 0) return;
 
   const details = issues
-    .map(
-      ({ path, reason, pattern }) =>
-        `- ${path}: ${reason}: ${JSON.stringify(pattern)}`,
-    )
+    .map(({ path, reason, pattern }) => {
+      const displayPattern = pattern
+        .replace(/\r/g, '\\r')
+        .replace(/\n/g, '\\n');
+      return `- ${path}: ${reason}: ${displayPattern}`;
+    })
     .join('\n');
   throw new Error(
     `Form ${formId} contains patterns that cannot be deployed:\n${details}`,
