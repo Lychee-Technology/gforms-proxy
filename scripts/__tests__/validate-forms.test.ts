@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest';
+import packageJson from '../../package.json' with { type: 'json' };
 import registry from '../../src/forms/registry.js';
 import type { FormDefinition } from '../../src/lib/types.js';
 import { validateRegisteredForms } from '../validate-forms.js';
@@ -44,4 +45,11 @@ describe('validateRegisteredForms', () => {
         '- $.properties.answer.allOf[0].not.pattern: outside safe RE2 subset: (a+)+',
     );
   });
+});
+
+test('deployment scripts validate forms before Wrangler runs', () => {
+  expect(packageJson.scripts.predeploy).toBe('pnpm validate:forms');
+  expect(packageJson.scripts.deploy).toBe(
+    'pnpm validate:forms && wrangler deploy',
+  );
 });
