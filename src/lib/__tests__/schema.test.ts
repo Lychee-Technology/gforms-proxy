@@ -1,5 +1,6 @@
 import { describe, test, expect } from 'vitest';
 import { buildJsonSchema, buildFieldMap } from '../schema.js';
+import { validate } from '../validator.js';
 import type { RawFormData, FieldDetail, FieldMeta } from '../types.js';
 
 const BASE_DATA: RawFormData = {
@@ -274,5 +275,25 @@ describe('regular_expression validation anchoring', () => {
   test('regex does_not_contain stays unanchored', () => {
     const prop = build({ type: 'regular_expression', operator: 'does_not_contain', values: ['[a-z]+\\d'] });
     expect(prop.allOf).toEqual([{ not: { pattern: '[a-z]+\\d' } }]);
+  });
+
+  test('matches: a partial match fails validate() while a full match passes', () => {
+    const schema = buildJsonSchema({
+      formTitle: 'T',
+      formId: 'id',
+      fields: [makeField({ type: 'regular_expression', operator: 'matches', values: ['[a-z]+\\d'] })],
+    });
+    expect(validate({ field_1: 'abc1x' }, schema as Record<string, unknown>)).toHaveLength(1);
+    expect(validate({ field_1: 'abc1' }, schema as Record<string, unknown>)).toEqual([]);
+  });
+
+  test('does_not_match: only a full match fails validate(), a partial match passes', () => {
+    const schema = buildJsonSchema({
+      formTitle: 'T',
+      formId: 'id',
+      fields: [makeField({ type: 'regular_expression', operator: 'does_not_match', values: ['[a-z]+\\d'] })],
+    });
+    expect(validate({ field_1: 'abc1' }, schema as Record<string, unknown>)).toHaveLength(1);
+    expect(validate({ field_1: 'abc1x' }, schema as Record<string, unknown>)).toEqual([]);
   });
 });
