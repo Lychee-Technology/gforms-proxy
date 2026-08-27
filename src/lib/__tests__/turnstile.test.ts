@@ -35,6 +35,13 @@ describe('verifyTurnstile', () => {
     expect(consoleSpy).toHaveBeenCalled();
   });
 
+  test('throws TurnstileServiceError without calling siteverify when secret is whitespace-only', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    await expect(verifyTurnstile('token', '   ')).rejects.toBeInstanceOf(TurnstileServiceError);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   test('throws TurnstileServiceError (not TurnstileError) on network failure', async () => {
     vi.spyOn(globalThis, 'fetch').mockRejectedValue(new TypeError('fetch failed'));
     const err = await verifyTurnstile('token', SECRET).catch((e: unknown) => e);
@@ -66,5 +73,13 @@ describe('verifyTurnstile', () => {
     expect((err as TurnstileError).errorCodes).toEqual(['invalid-input-response']);
     const logged = consoleSpy.mock.calls.flat().map(String).join(' ');
     expect(logged).toContain('invalid-input-response');
+  });
+
+  test('throws TurnstileError when the token is rejected without an error-codes key', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(siteverifyResponse({ success: false }));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const err = await verifyTurnstile('token', SECRET).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(TurnstileError);
+    expect((err as TurnstileError).errorCodes).toBeUndefined();
   });
 });

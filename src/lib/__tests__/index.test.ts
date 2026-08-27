@@ -131,6 +131,15 @@ describe('POST /api/v1/forms/:formId/responses (Turnstile-enabled form)', () => 
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  test('returns 400 naming turnstile_token when it is an empty string', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    const res = await post({ name: 'Alice', turnstile_token: '' });
+    expect(res.status).toBe(400);
+    const json = await res.json() as { error: string };
+    expect(json.error).toContain('turnstile_token');
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   test('returns 400 naming turnstile_token when it is not a string', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch');
     const res = await post({ name: 'Alice', turnstile_token: 12345 });

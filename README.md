@@ -76,9 +76,10 @@ To let the Worker accept submissions for the form, register it: add a JSON impor
 `POST /api/v1/forms/:formId/responses` accepts a JSON body for a pre-registered form, validates it against the stored schema, verifies Turnstile when the definition requires it, and forwards the data to Google's `formResponse` endpoint. Responses:
 
 - `200`: `{ "success": true }` once Google accepts the submission
-- `400`: `{ "error": "Validation failed", "details": [{ "field": "...", "message": "..." }] }` when the body violates the schema; an invalid JSON body or a failed Turnstile check also gets a 400
+- `400`: `{ "error": "Validation failed", "details": [{ "field": "...", "message": "..." }] }` when the body violates the schema; an invalid JSON body, a missing/non-string `turnstile_token`, or a rejected Turnstile token also gets a 400
 - `404`: the `formId` is not registered
 - `502`: Google rejected the submission
+- `503`: `{ "error": "Turnstile verification is temporarily unavailable" }` when Turnstile verification cannot be performed — the `TURNSTILE_SECRET_KEY` secret is not configured, or the siteverify service is unreachable or misbehaving
 
 ## Output example
 

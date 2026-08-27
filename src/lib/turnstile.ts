@@ -27,7 +27,7 @@ export async function verifyTurnstile(
   secretKey: string,
   remoteIp?: string,
 ): Promise<void> {
-  if (typeof secretKey !== 'string' || secretKey === '') {
+  if (typeof secretKey !== 'string' || secretKey.trim() === '') {
     console.error('Turnstile configuration error: TURNSTILE_SECRET_KEY is not set');
     throw new TurnstileServiceError('TURNSTILE_SECRET_KEY is not configured');
   }
