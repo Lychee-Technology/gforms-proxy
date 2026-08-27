@@ -18,7 +18,7 @@ Three known gaps where the generator emits constructs the validator does not ful
 
 - `format: date` and `format: time` on date/time questions pass through unvalidated (#17).
 - Grid questions become objects with a schema-valued `additionalProperties`, but the validator does not recurse into object entries, so grid values are only checked to be objects (#18).
-- `pattern` values are copied from Google Forms, whose regex validation uses RE2 syntax. A pattern JavaScript's `new RegExp()` cannot compile (e.g. `(?i)`), or one using RE2 constructs JavaScript compiles with a different meaning (`\A`/`\z` anchors, `\Q...\E` quoting, `\p{...}` classes, `\C`, POSIX classes like `[[:alpha:]]`), is skipped with a logged warning rather than failing the request; a `not` constraint whose pattern is skipped is skipped entirely, since without evaluating the pattern a rejection can never be affirmed. Validation of such values is delegated to Google as the final judge (#5).
+- `pattern` values are copied from Google Forms, whose regex validation uses RE2 syntax. A pattern JavaScript's `new RegExp()` cannot compile (e.g. `(?i)`), or one using RE2 constructs JavaScript compiles with a different meaning (`\A`/`\z` anchors, `\Q...\E` quoting, `\p{...}` classes, `\C`, `\a`, braced hex escapes like `\x{41}`, POSIX classes like `[[:alpha:]]`), is skipped with a logged warning rather than failing the request; a `not` constraint whose pattern is skipped is skipped entirely, since without evaluating the pattern a rejection can never be affirmed. Validation of such values is delegated to Google as the final judge (#5).
 
 It returns a flat list of `{ field, message }` errors, which the route surfaces as a 400 response with structured `details`.
 

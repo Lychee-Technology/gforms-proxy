@@ -359,6 +359,36 @@ describe('validate — RE2 constructs that compile in JavaScript with different 
     expect(validate({ code: 'az' }, schema)).toHaveLength(1);
   });
 
+  test('skips RE2 \\a (BEL) instead of misreading it as literal a', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const schema = {
+      type: 'object',
+      properties: { code: { type: 'string', pattern: '^(?:\\a+)$' } },
+    };
+    expect(validate({ code: 'beep' }, schema)).toEqual([]);
+    expect(validate({ code: 'aaa' }, schema)).toEqual([]);
+  });
+
+  test('a not-constraint containing RE2 \\a is skipped', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const schema = {
+      type: 'object',
+      properties: {
+        code: { type: 'string', allOf: [{ not: { pattern: '\\a' } }] },
+      },
+    };
+    expect(validate({ code: 'a' }, schema)).toEqual([]);
+  });
+
+  test('skips RE2 braced hex escapes like \\x{41}', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const schema = {
+      type: 'object',
+      properties: { code: { type: 'string', pattern: '^\\x{41}$' } },
+    };
+    expect(validate({ code: 'B' }, schema)).toEqual([]);
+  });
+
   test('a not-constraint whose pattern uses divergent RE2 syntax is skipped', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const schema = {
