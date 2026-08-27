@@ -26,38 +26,46 @@ export function findSchemaPatternIssues(
   schema: unknown,
 ): SchemaPatternIssue[] {
   const issues: SchemaPatternIssue[] = [];
+  const activeAncestors = new WeakSet<object>();
 
   const visit = (value: unknown, path: string): void => {
-    if (Array.isArray(value)) {
-      value.forEach((item, index) => visit(item, `${path}[${index}]`));
-      return;
-    }
-    if (!isPlainObject(value)) return;
+    if (!Array.isArray(value) && !isPlainObject(value)) return;
+    if (activeAncestors.has(value)) return;
+    activeAncestors.add(value);
 
-    for (const [key, child] of Object.entries(value)) {
-      const childPath = propertyPath(path, key);
-      if (key === 'pattern' && typeof child === 'string') {
-        const source = toJavaScriptRegexSource(child);
-        if (source === null) {
-          issues.push({
-            path: childPath,
-            pattern: child,
-            reason: 'outside safe RE2 subset',
-          });
-        } else {
-          try {
-            new RegExp(source, JS_REGEX_FLAGS);
-          } catch (error) {
-            if (!(error instanceof SyntaxError)) throw error;
+    try {
+      if (Array.isArray(value)) {
+        value.forEach((item, index) => visit(item, `${path}[${index}]`));
+        return;
+      }
+
+      for (const [key, child] of Object.entries(value)) {
+        const childPath = propertyPath(path, key);
+        if (key === 'pattern' && typeof child === 'string') {
+          const source = toJavaScriptRegexSource(child);
+          if (source === null) {
             issues.push({
               path: childPath,
               pattern: child,
-              reason: 'uncompilable translated pattern',
+              reason: 'outside safe RE2 subset',
             });
+          } else {
+            try {
+              new RegExp(source, JS_REGEX_FLAGS);
+            } catch (error) {
+              if (!(error instanceof SyntaxError)) throw error;
+              issues.push({
+                path: childPath,
+                pattern: child,
+                reason: 'uncompilable translated pattern',
+              });
+            }
           }
         }
+        visit(child, childPath);
       }
-      visit(child, childPath);
+    } finally {
+      activeAncestors.delete(value);
     }
   };
 

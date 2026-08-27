@@ -78,6 +78,44 @@ describe('findSchemaPatternIssues', () => {
     ).toEqual([]);
   });
 
+  test('stops at an object cycle', () => {
+    const schema: Record<string, unknown> = { pattern: '\\p{L}' };
+    schema.self = schema;
+
+    expect(findSchemaPatternIssues(schema)).toEqual([
+      {
+        path: '$.pattern',
+        pattern: '\\p{L}',
+        reason: 'outside safe RE2 subset',
+      },
+    ]);
+  });
+
+  test('stops at an array cycle', () => {
+    const schema: unknown[] = [];
+    schema.push(schema);
+
+    expect(findSchemaPatternIssues(schema)).toEqual([]);
+  });
+
+  test('reports a shared unsafe schema object at every path', () => {
+    const shared = { pattern: '\\p{L}' };
+    const schema = { properties: { first: shared, second: shared } };
+
+    expect(findSchemaPatternIssues(schema)).toEqual([
+      {
+        path: '$.properties.first.pattern',
+        pattern: '\\p{L}',
+        reason: 'outside safe RE2 subset',
+      },
+      {
+        path: '$.properties.second.pattern',
+        pattern: '\\p{L}',
+        reason: 'outside safe RE2 subset',
+      },
+    ]);
+  });
+
   test('does not mutate the schema', () => {
     const schema = {
       properties: {
