@@ -115,6 +115,13 @@ export function toJavaScriptRegexSource(pattern: string): string | null {
         out += '\\' + next;
         i += 2;
       } else if (next === 's') {
+        // In-class expansion ends with a literal space; a following range
+        // dash would read it as a range start (RE2 keeps the dash literal
+        // after a class escape). A dash immediately before ] is literal in
+        // both engines.
+        if (inClass && pattern[i + 2] === '-' && pattern[i + 3] !== ']') {
+          return null;
+        }
         out += inClass ? RE2_SPACE : `[${RE2_SPACE}]`;
         i += 2;
       } else if (next === 'S' && !inClass) {

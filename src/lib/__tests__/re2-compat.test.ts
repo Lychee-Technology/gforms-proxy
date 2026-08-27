@@ -59,6 +59,22 @@ describe('toJavaScriptRegexSource — exact translations', () => {
     expect(re.test(' ,\t')).toBe(true);
     expect(re.test('\u00A0')).toBe(false);
   });
+
+  test('in-class \\s followed by a range dash fails open', () => {
+    // RE2 treats the dash after a class escape as a literal ([\s-a] matches
+    // whitespace, '-', 'a'); the expanded [\t\n\f\r -a] would turn the
+    // trailing space into a range start and also match A-Z, digits, and most
+    // punctuation.
+    expect(toJavaScriptRegexSource('[\\s-a]')).toBeNull();
+    expect(toJavaScriptRegexSource('^[\\s-a]+$')).toBeNull();
+  });
+
+  test('in-class \\s before a literal trailing dash stays evaluable', () => {
+    const re = compile('^[\\s-]$');
+    expect(re.test('-')).toBe(true);
+    expect(re.test('\t')).toBe(true);
+    expect(re.test('A')).toBe(false);
+  });
 });
 
 describe('toJavaScriptRegexSource \u2014 code-point semantics (RE2 matches code points, not units)', () => {
