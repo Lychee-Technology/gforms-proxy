@@ -6,8 +6,7 @@
   "scripts": {
     "dev": "wrangler dev",
     "validate:forms": "tsx scripts/validate-forms.ts",
-    "predeploy": "pnpm validate:forms",
-    "deploy": "wrangler deploy",
+    "deploy": "pnpm validate:forms && wrangler deploy",
     "test": "vitest run --reporter=verbose",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.scripts.json",

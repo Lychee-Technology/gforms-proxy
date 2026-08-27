@@ -48,6 +48,11 @@ describe('validateRegisteredForms', () => {
 });
 
 test('deployment scripts validate forms before Wrangler runs', () => {
-  expect(packageJson.scripts.predeploy).toBe('pnpm validate:forms');
-  expect(packageJson.scripts.deploy).toBe('wrangler deploy');
+  // Inline && rather than a predeploy hook: pnpm only runs pre/post scripts
+  // when enable-pre-post-scripts is on, so a hook can be silently skipped by
+  // user-level config or a pnpm version with a different default.
+  expect(packageJson.scripts.deploy).toBe(
+    'pnpm validate:forms && wrangler deploy',
+  );
+  expect(packageJson.scripts).not.toHaveProperty('predeploy');
 });
