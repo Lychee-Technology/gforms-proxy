@@ -75,6 +75,29 @@ describe('verifyTurnstile', () => {
     expect(logged).toContain('invalid-input-response');
   });
 
+  test.each([
+    ['JSON null', 'null'],
+    ['a JSON array', '[]'],
+    ['an object without success', '{}'],
+    ['a non-boolean success', '{"success":"false"}'],
+  ])('throws TurnstileServiceError when siteverify returns %s', async (_desc, body) => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(body, { status: 200, headers: { 'Content-Type': 'application/json' } }),
+    );
+    const err = await verifyTurnstile('token', SECRET).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(TurnstileServiceError);
+  });
+
+  test('ignores a malformed error-codes value on token rejection', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      siteverifyResponse({ success: false, 'error-codes': 'not-an-array' }),
+    );
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const err = await verifyTurnstile('token', SECRET).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(TurnstileError);
+    expect((err as TurnstileError).errorCodes).toBeUndefined();
+  });
+
   test('throws TurnstileError when the token is rejected without an error-codes key', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(siteverifyResponse({ success: false }));
     vi.spyOn(console, 'error').mockImplementation(() => {});

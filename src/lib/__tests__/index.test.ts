@@ -16,12 +16,34 @@ const MOCK_DEFINITION: FormDefinition = {
   fieldMap: { name: 'entry.999' },
 };
 
-// Models schema drift: turnstileEnabled is set but the schema does not
-// require (or even declare) turnstile_token, so the endpoint guard is the
-// only thing standing between a missing token and the siteverify call.
+// Generator-compatible Turnstile definition: mirrors what
+// gen-field-mapping.ts emits for --turnstile forms (turnstile_token spliced
+// into properties and required, additionalProperties false).
 const MOCK_TURNSTILE_DEFINITION: FormDefinition = {
   formId: 'turnstileForm',
   submissionUrl: 'https://docs.google.com/forms/d/e/turnstileForm/formResponse',
+  schema: {
+    $schema: 'https://json-schema.org/draft/2020-12/schema',
+    type: 'object',
+    additionalProperties: false,
+    required: ['name', 'turnstile_token'],
+    properties: {
+      name: { type: 'string', minLength: 1 },
+      turnstile_token: { type: 'string', description: 'Cloudflare Turnstile token' },
+    },
+  },
+  fieldMap: { name: 'entry.111' },
+  turnstileEnabled: true,
+};
+
+// ADVERSARIAL FIXTURE — deliberately violates the FormDefinition invariant
+// documented in AGENTS.md (Turnstile-enabled schemas require turnstile_token,
+// spliced by the generator). It models schema drift so the endpoint's own
+// token guard is exercised without the validator rejecting the request first.
+// Never copy this shape for a real registered form.
+const DRIFTED_TURNSTILE_DEFINITION: FormDefinition = {
+  formId: 'driftedTurnstileForm',
+  submissionUrl: 'https://docs.google.com/forms/d/e/driftedTurnstileForm/formResponse',
   schema: {
     $schema: 'https://json-schema.org/draft/2020-12/schema',
     type: 'object',
@@ -39,6 +61,7 @@ vi.mock('../../forms/registry.js', () => ({
   default: new Map([
     ['testForm123', MOCK_DEFINITION],
     ['turnstileForm', MOCK_TURNSTILE_DEFINITION],
+    ['driftedTurnstileForm', DRIFTED_TURNSTILE_DEFINITION],
   ]),
 }));
 
@@ -111,9 +134,9 @@ describe('POST /api/v1/forms/:formId/responses', () => {
 describe('POST /api/v1/forms/:formId/responses (Turnstile-enabled form)', () => {
   const ENV = { TURNSTILE_SECRET_KEY: 'test-secret' };
 
-  const post = (body: unknown, env: Record<string, unknown> = ENV) =>
+  const post = (body: unknown, env: Record<string, unknown> = ENV, formId = 'turnstileForm') =>
     app.request(
-      '/api/v1/forms/turnstileForm/responses',
+      `/api/v1/forms/${formId}/responses`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -122,9 +145,14 @@ describe('POST /api/v1/forms/:formId/responses (Turnstile-enabled form)', () => 
       env,
     );
 
+  // The token-guard tests use the drifted definition: with the
+  // generator-compatible schema the validator would reject the request first,
+  // so drift is the only path that reaches the endpoint's own guard.
+  const postDrifted = (body: unknown) => post(body, ENV, 'driftedTurnstileForm');
+
   test('returns 400 naming turnstile_token when it is missing, without calling siteverify', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch');
-    const res = await post({ name: 'Alice' });
+    const res = await postDrifted({ name: 'Alice' });
     expect(res.status).toBe(400);
     const json = await res.json() as { error: string };
     expect(json.error).toContain('turnstile_token');
@@ -133,7 +161,7 @@ describe('POST /api/v1/forms/:formId/responses (Turnstile-enabled form)', () => 
 
   test('returns 400 naming turnstile_token when it is an empty string', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch');
-    const res = await post({ name: 'Alice', turnstile_token: '' });
+    const res = await postDrifted({ name: 'Alice', turnstile_token: '' });
     expect(res.status).toBe(400);
     const json = await res.json() as { error: string };
     expect(json.error).toContain('turnstile_token');
@@ -142,7 +170,7 @@ describe('POST /api/v1/forms/:formId/responses (Turnstile-enabled form)', () => 
 
   test('returns 400 naming turnstile_token when it is not a string', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch');
-    const res = await post({ name: 'Alice', turnstile_token: 12345 });
+    const res = await postDrifted({ name: 'Alice', turnstile_token: 12345 });
     expect(res.status).toBe(400);
     const json = await res.json() as { error: string };
     expect(json.error).toContain('turnstile_token');

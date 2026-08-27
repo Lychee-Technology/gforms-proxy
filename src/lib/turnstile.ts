@@ -46,15 +46,31 @@ export async function verifyTurnstile(
     throw new TurnstileServiceError(`Turnstile siteverify returned HTTP ${response.status}`);
   }
 
-  let data: { success: boolean; 'error-codes'?: string[] };
+  let payload: unknown;
   try {
-    data = await response.json<{ success: boolean; 'error-codes'?: string[] }>();
+    payload = await response.json();
   } catch {
     throw new TurnstileServiceError('Turnstile siteverify returned a non-JSON response');
   }
 
+  // The payload is external input: reject anything that is not an object with
+  // a boolean `success`, or a truthy non-boolean would bypass verification.
+  if (
+    typeof payload !== 'object' ||
+    payload === null ||
+    Array.isArray(payload) ||
+    typeof (payload as { success?: unknown }).success !== 'boolean'
+  ) {
+    throw new TurnstileServiceError('Turnstile siteverify returned an unexpected payload shape');
+  }
+
+  const data = payload as { success: boolean; 'error-codes'?: unknown };
   if (!data.success) {
-    const errorCodes = data['error-codes'];
+    const rawCodes = data['error-codes'];
+    const errorCodes =
+      Array.isArray(rawCodes) && rawCodes.every((c): c is string => typeof c === 'string')
+        ? rawCodes
+        : undefined;
     console.error('Turnstile token verification failed, error-codes:', errorCodes ?? []);
     throw new TurnstileError('Turnstile token verification failed', errorCodes);
   }
