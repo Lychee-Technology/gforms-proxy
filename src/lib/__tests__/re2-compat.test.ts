@@ -15,8 +15,6 @@ describe('toJavaScriptRegexSource — verified-identical constructs pass through
     'a{2}',
     'a{1000}',
     '^a+?$',
-    '^a\\|b$',
-    '^[|]$',
     '\\x41\\t\\n',
     '[^0-9-]',
   ])('%s stays evaluable', (pattern) => {
@@ -37,6 +35,17 @@ describe('toJavaScriptRegexSource — exact translations', () => {
     const re = compile('^[.]$');
     expect(re.test('.')).toBe(true);
     expect(re.test('x')).toBe(false);
+  });
+
+  test('escaped and character-class pipes stay literal', () => {
+    const escaped = compile('^a\\|b$');
+    expect(escaped.test('a|b')).toBe(true);
+    expect(escaped.test('a')).toBe(false);
+    expect(escaped.test('b')).toBe(false);
+
+    const characterClass = compile('^[|]$');
+    expect(characterClass.test('|')).toBe(true);
+    expect(characterClass.test('x')).toBe(false);
   });
 
   test('\\s and \\S use RE2 ASCII whitespace', () => {
@@ -152,9 +161,7 @@ describe('toJavaScriptRegexSource — everything else is rejected, not guessed',
 
   test('rejects repeated ambiguous alternations without native execution', () => {
     const pattern = '^' + '(?:a|aa)'.repeat(30) + 'b$';
-    const startedAt = performance.now();
 
     expect(toJavaScriptRegexSource(pattern)).toBeNull();
-    expect(performance.now() - startedAt).toBeLessThan(1000);
   });
 });

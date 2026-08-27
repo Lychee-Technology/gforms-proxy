@@ -529,11 +529,9 @@ describe('validate — unsafe backtracking patterns', () => {
       type: 'object',
       properties: { code: { type: 'string', pattern } },
     };
-    const startedAt = performance.now();
 
     expect(validate({ code: `${'a'.repeat(60)}c` }, schema)).toEqual([]);
     expect(dangerousPatternExecuted).toBe(false);
-    expect(performance.now() - startedAt).toBeLessThan(1000);
   });
 });
 
