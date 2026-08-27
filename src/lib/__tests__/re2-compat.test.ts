@@ -12,9 +12,8 @@ describe('toJavaScriptRegexSource — verified-identical constructs pass through
     '^[A-Z]+$',
     '^(?:[a-z]+\\d)$',
     'a\\\\z',
-    '\\d{2,4}(-|/)\\d{2}',
-    '\\w+@\\w+\\.[a-z]{2,}',
-    '(foo|bar)+',
+    'a{2}',
+    '^a+?$',
     '\\x41\\t\\n',
     '[^0-9-]',
   ])('%s stays evaluable', (pattern) => {
@@ -51,6 +50,12 @@ describe('toJavaScriptRegexSource — exact translations', () => {
 });
 
 describe('toJavaScriptRegexSource \u2014 code-point semantics (RE2 matches code points, not units)', () => {
+  test('a non-BMP literal is one atom and can be quantified', () => {
+    const re = compile('^\u{1F600}+$');
+    expect(re.test('\u{1F600}')).toBe(true);
+    expect(re.test('\u{1F600}\u{1F600}')).toBe(true);
+  });
+
   test('two dots require two code points: one emoji cannot satisfy both', () => {
     const re = compile('^..$');
     expect(re.test('\u{1F600}')).toBe(false);
@@ -93,6 +98,13 @@ describe('toJavaScriptRegexSource \u2014 code-point semantics (RE2 matches code 
 
 describe('toJavaScriptRegexSource — everything else is rejected, not guessed', () => {
   test.each([
+    '^(?:(a+)+)$',
+    '^(?:a+a+)$',
+    '^(?:(a|aa)+)$',
+    'a+',
+    '\\d{2,4}(-|/)\\d{2}',
+    '\\w+@\\w+\\.[a-z]{2,}',
+    '(foo|bar)+',
     '(?i)abc',
     '(?P<year>\\d{4})',
     '(?=x)',
@@ -108,7 +120,8 @@ describe('toJavaScriptRegexSource — everything else is rejected, not guessed',
     '[\\S]',
     '[a-z',
     'trailing\\',
-    '\u{1F600}',
+    '\uD83D',
+    '\uDE00',
   ])('%s returns null', (pattern) => {
     expect(toJavaScriptRegexSource(pattern)).toBeNull();
   });

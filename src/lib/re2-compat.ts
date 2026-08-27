@@ -14,8 +14,9 @@
  *
  * Verified-identical and kept as-is: literals, \d \D \w \W (ASCII in both),
  * \b \B outside classes, \t \n \r \f \v, two-digit \xHH, ^ $ (end of text in
- * both without flags), alternation, quantifiers, character classes and
- * ranges, capturing and (?: groups.
+ * both without flags), alternation, character classes and ranges, capturing
+ * and (?: groups. At most one single-atom quantifier is accepted; unbounded
+ * quantifiers additionally require a leading ^ anchor.
  *
  * Translated exactly: `.` becomes [^\n] (RE2's dot also matches \r and
  * Unicode line separators); \s / \S become RE2's ASCII class [\t\n\f\r ]
@@ -26,8 +27,8 @@
  *
  * Everything else returns null: inline flags, \A \z \Q...\E \p \C \a, braced
  * hex and octal/backreference digit escapes, POSIX classes, lookarounds,
- * named groups, and patterns containing surrogates (non-BMP literals are
- * conservatively delegated to Google rather than re-encoded).
+ * named groups, and lone surrogate code units. Well-formed surrogate pairs
+ * are preserved and become one code-point atom under the u flag.
  */
 
 export const JS_REGEX_FLAGS = 'u';
@@ -49,11 +50,48 @@ const hexEscape = (c: string): string =>
 export function toJavaScriptRegexSource(pattern: string): string | null {
   let out = '';
   let inClass = false;
+  let repetitionSeen = false;
+  let canBeLazy = false;
+  let quantifiable: 'atom' | 'group' | null = null;
   for (let i = 0; i < pattern.length; ) {
     const ch = pattern[i] as string;
     const code = ch.charCodeAt(0);
-    if (code >= 0xd800 && code <= 0xdfff) return null;
-    if (ch === '\\') {
+    if (ch === '?' && canBeLazy) {
+      out += ch;
+      i++;
+      canBeLazy = false;
+      quantifiable = null;
+      continue;
+    }
+    canBeLazy = false;
+
+    if (!inClass) {
+      const braceQuantifier =
+        ch === '{' ? QUANTIFIER.exec(pattern.slice(i))?.[0] : undefined;
+      const quantifier = '*+?'.includes(ch) ? ch : braceQuantifier;
+      if (quantifier !== undefined) {
+        if (repetitionSeen || quantifiable !== 'atom') return null;
+        const unbounded =
+          ch === '*' || ch === '+' || quantifier.endsWith(',}');
+        if (unbounded && !pattern.startsWith('^')) return null;
+        repetitionSeen = true;
+        out += quantifier;
+        i += quantifier.length;
+        canBeLazy = true;
+        quantifiable = null;
+        continue;
+      }
+    }
+
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const low = pattern.charCodeAt(i + 1);
+      if (!(low >= 0xdc00 && low <= 0xdfff)) return null;
+      out += ch + pattern[i + 1];
+      i += 2;
+      if (!inClass) quantifiable = 'atom';
+    } else if (code >= 0xdc00 && code <= 0xdfff) {
+      return null;
+    } else if (ch === '\\') {
       const next = pattern[i + 1];
       if (next === undefined) return null;
       if ('dDwWtnrfv'.includes(next)) {
@@ -79,14 +117,18 @@ export function toJavaScriptRegexSource(pattern: string): string | null {
       } else {
         return null;
       }
+      if (!inClass) quantifiable = 'atom';
     } else if (inClass) {
-      if (ch === ']') inClass = false;
-      else if (ch === '[' && pattern[i + 1] === ':') return null;
+      if (ch === ']') {
+        inClass = false;
+        quantifiable = 'atom';
+      } else if (ch === '[' && pattern[i + 1] === ':') return null;
       out += ch;
       i++;
     } else if (ch === '.') {
       out += DOT;
       i++;
+      quantifiable = 'atom';
     } else if (ch === '[') {
       out += ch;
       i++;
@@ -98,28 +140,39 @@ export function toJavaScriptRegexSource(pattern: string): string | null {
       // differently across engines.
       if (pattern[i] === ']' || pattern[i] === ':') return null;
       inClass = true;
+      quantifiable = null;
     } else if (ch === '(' && pattern[i + 1] === '?') {
       if (pattern[i + 2] !== ':') return null;
       out += '(?:';
       i += 3;
+      quantifiable = null;
+    } else if (ch === '(') {
+      out += ch;
+      i++;
+      quantifiable = null;
+    } else if (ch === ')') {
+      out += ch;
+      i++;
+      quantifiable = 'group';
     } else if (ch === '{') {
-      // Both engines read {n}/{n,}/{n,m} as a quantifier; any other brace is
-      // a literal in RE2, which the u flag only accepts escaped.
-      const quant = QUANTIFIER.exec(pattern.slice(i));
-      if (quant) {
-        out += quant[0];
-        i += quant[0].length;
-      } else {
-        out += hexEscape(ch);
-        i++;
-      }
+      // Any brace form not consumed as a quantifier is a literal in RE2,
+      // which the u flag only accepts escaped.
+      out += hexEscape(ch);
+      i++;
+      quantifiable = 'atom';
     } else if (ch === '}' || ch === ']') {
       // Literal in RE2 outside a class/quantifier; the u flag rejects it bare.
       out += hexEscape(ch);
       i++;
+      quantifiable = 'atom';
+    } else if (ch === '^' || ch === '$' || ch === '|') {
+      out += ch;
+      i++;
+      quantifiable = null;
     } else {
       out += ch;
       i++;
+      quantifiable = 'atom';
     }
   }
   return inClass ? null : out;
