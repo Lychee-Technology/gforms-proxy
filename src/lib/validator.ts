@@ -25,12 +25,20 @@ function checkType(value: unknown, type: string): boolean {
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const URI_RE = /^https?:\/\/.+/;
 
-const patternCache = new Map<string, RegExp>();
+// Google Forms patterns use RE2 syntax; constructs like `(?i)` don't compile
+// in JavaScript. An uncompilable pattern is cached as null and its check
+// skipped — Google remains the final judge for those values.
+const patternCache = new Map<string, RegExp | null>();
 
-function getPattern(pattern: string): RegExp {
+function getPattern(pattern: string): RegExp | null {
   let re = patternCache.get(pattern);
-  if (!re) {
-    re = new RegExp(pattern);
+  if (re === undefined) {
+    try {
+      re = new RegExp(pattern);
+    } catch {
+      console.warn(`Skipping uncompilable pattern: ${pattern}`);
+      re = null;
+    }
     patternCache.set(pattern, re);
   }
   return re;
@@ -77,8 +85,11 @@ function validateProperty(
       errors.push({ field, message: 'must match format: uri' });
     }
     const pattern = schema['pattern'];
-    if (typeof pattern === 'string' && !getPattern(pattern).test(value)) {
-      errors.push({ field, message: `must match pattern: ${pattern}` });
+    if (typeof pattern === 'string') {
+      const re = getPattern(pattern);
+      if (re && !re.test(value)) {
+        errors.push({ field, message: `must match pattern: ${pattern}` });
+      }
     }
   }
 
@@ -129,6 +140,13 @@ function validateProperty(
     for (const sub of allOf as Schema[]) {
       if (isObject(sub) && 'not' in sub) {
         const notSchema = sub['not'] as Schema;
+        // A skipped (uncompilable) pattern inside `not` would leave notErrors
+        // empty and invert into rejecting every value — skip the whole
+        // constraint instead.
+        const notPattern = isObject(notSchema) ? notSchema['pattern'] : undefined;
+        if (typeof notPattern === 'string' && getPattern(notPattern) === null) {
+          continue;
+        }
         const notErrors: ValidationError[] = [];
         validateProperty(field, value, notSchema, notErrors);
         if (notErrors.length === 0) {

@@ -239,3 +239,40 @@ describe('key deduplication', () => {
     );
   });
 });
+
+describe('regular_expression validation anchoring', () => {
+  const makeField = (validation: FieldDetail['validation']): FieldDetail => ({
+    label: 'Code',
+    entryId: 'entry.7',
+    typeCode: 0,
+    typeLabel: 'short_answer',
+    options: [],
+    required: false,
+    validation,
+  });
+
+  const build = (validation: FieldDetail['validation']) => {
+    const schema = buildJsonSchema({ formTitle: 'T', formId: 'id', fields: [makeField(validation)] });
+    return (schema.properties as any).field_1;
+  };
+
+  test('matches emits an anchored full-match pattern', () => {
+    const prop = build({ type: 'regular_expression', operator: 'matches', values: ['[a-z]+\\d'] });
+    expect(prop.pattern).toBe('^(?:[a-z]+\\d)$');
+  });
+
+  test('does_not_match emits an anchored not-constraint pattern', () => {
+    const prop = build({ type: 'regular_expression', operator: 'does_not_match', values: ['[a-z]+\\d'] });
+    expect(prop.allOf).toEqual([{ not: { pattern: '^(?:[a-z]+\\d)$' } }]);
+  });
+
+  test('regex contains stays unanchored', () => {
+    const prop = build({ type: 'regular_expression', operator: 'contains', values: ['[a-z]+\\d'] });
+    expect(prop.pattern).toBe('[a-z]+\\d');
+  });
+
+  test('regex does_not_contain stays unanchored', () => {
+    const prop = build({ type: 'regular_expression', operator: 'does_not_contain', values: ['[a-z]+\\d'] });
+    expect(prop.allOf).toEqual([{ not: { pattern: '[a-z]+\\d' } }]);
+  });
+});

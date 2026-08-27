@@ -157,12 +157,15 @@ const applyValidationToSchema = (
       ensureStringType();
       const raw = validation.values[0];
       if (!raw) break;
-      if (validation.operator === 'matches' || validation.operator === 'contains') {
+      // Google's "matches" requires the whole value to match; anchor so the
+      // JS validator doesn't degrade it to "contains".
+      if (validation.operator === 'matches') {
+        addPattern(schema, `^(?:${raw})$`);
+      } else if (validation.operator === 'contains') {
         addPattern(schema, raw);
-      } else if (
-        validation.operator === 'does_not_match' ||
-        validation.operator === 'does_not_contain'
-      ) {
+      } else if (validation.operator === 'does_not_match') {
+        addNotConstraint(schema, { pattern: `^(?:${raw})$` });
+      } else if (validation.operator === 'does_not_contain') {
         addNotConstraint(schema, { pattern: raw });
       }
       break;

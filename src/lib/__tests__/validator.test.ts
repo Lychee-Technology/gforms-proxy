@@ -1,4 +1,4 @@
-import { describe, test, expect } from 'vitest';
+import { describe, test, expect, vi, afterEach } from 'vitest';
 import { validate } from '../validator.js';
 
 describe('validate — required fields', () => {
@@ -243,5 +243,70 @@ describe('validate — optional fields', () => {
       },
     };
     expect(validate({}, schema)).toEqual([]);
+  });
+});
+
+describe('validate — uncompilable (RE2-only) patterns', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  test('does not throw and skips the pattern check', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const schema = {
+      type: 'object',
+      properties: { code: { type: 'string', pattern: '(?i)abc' } },
+    };
+    expect(() => validate({ code: 'anything' }, schema)).not.toThrow();
+    expect(validate({ code: 'anything' }, schema)).toEqual([]);
+  });
+
+  test('other constraints on the same property still apply', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const schema = {
+      type: 'object',
+      properties: {
+        code: { type: 'string', pattern: '(?i)def', minLength: 5 },
+      },
+    };
+    const errors = validate({ code: 'ab' }, schema);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]?.message).toContain('at least 5');
+  });
+
+  test('warns once per unique pattern across repeated validations', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const schema = {
+      type: 'object',
+      properties: { code: { type: 'string', pattern: '(?i)ghi' } },
+    };
+    validate({ code: 'x' }, schema);
+    validate({ code: 'y' }, schema);
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  test('skips a not-constraint whose pattern is uncompilable instead of rejecting everything', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const schema = {
+      type: 'object',
+      properties: {
+        code: {
+          type: 'string',
+          allOf: [{ not: { pattern: '(?i)jkl' } }],
+        },
+      },
+    };
+    expect(validate({ code: 'whatever' }, schema)).toEqual([]);
+  });
+
+  test('valid not-constraint patterns still reject matching values', () => {
+    const schema = {
+      type: 'object',
+      properties: {
+        code: { type: 'string', allOf: [{ not: { pattern: '^forbidden$' } }] },
+      },
+    };
+    expect(validate({ code: 'forbidden' }, schema)).toHaveLength(1);
+    expect(validate({ code: 'allowed' }, schema)).toEqual([]);
   });
 });
