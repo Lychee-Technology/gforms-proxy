@@ -14,10 +14,11 @@ Write a purpose-built validator (`src/lib/validator.ts`) with no external depend
 
 `type`, `required`, `enum`, `const`, `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `minLength`, `maxLength`, `format` (email and uri only), `pattern`, `minItems`, `uniqueItems`, `allOf`, `not`, `anyOf`
 
-Two known gaps where the generator emits constructs the validator does not yet check:
+Three known gaps where the generator emits constructs the validator does not fully check:
 
 - `format: date` and `format: time` on date/time questions pass through unvalidated (#17).
 - Grid questions become objects with a schema-valued `additionalProperties`, but the validator does not recurse into object entries, so grid values are only checked to be objects (#18).
+- `pattern` values are copied from Google Forms, whose regex validation uses RE2 syntax; a pattern JavaScript's `new RegExp()` cannot compile (e.g. `(?i)`) is skipped with a logged warning rather than failing the request, and a `not` constraint whose pattern is uncompilable is skipped entirely, since without evaluating the pattern a rejection can never be affirmed. Validation of such values is delegated to Google as the final judge (#5).
 
 It returns a flat list of `{ field, message }` errors, which the route surfaces as a 400 response with structured `details`.
 
