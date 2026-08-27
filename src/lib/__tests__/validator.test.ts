@@ -310,3 +310,63 @@ describe('validate — uncompilable (RE2-only) patterns', () => {
     expect(validate({ code: 'allowed' }, schema)).toEqual([]);
   });
 });
+
+describe('validate — RE2 constructs that compile in JavaScript with different semantics', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  test('skips a pattern containing RE2 \\z instead of misreading it as literal z', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const schema = {
+      type: 'object',
+      properties: { code: { type: 'string', pattern: '^(?:foo\\z)$' } },
+    };
+    expect(validate({ code: 'foo' }, schema)).toEqual([]);
+    expect(validate({ code: 'fooz' }, schema)).toEqual([]);
+  });
+
+  test('skips \\Q...\\E quoting and \\p{...} classes, warning once each', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const quoted = {
+      type: 'object',
+      properties: { code: { type: 'string', pattern: '\\Qa.b\\E' } },
+    };
+    const unicodeClass = {
+      type: 'object',
+      properties: { code: { type: 'string', pattern: '\\p{L}+' } },
+    };
+    expect(validate({ code: 'x' }, quoted)).toEqual([]);
+    expect(validate({ code: 'x' }, unicodeClass)).toEqual([]);
+    expect(warn).toHaveBeenCalledTimes(2);
+  });
+
+  test('skips POSIX character classes like [[:alpha:]]', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const schema = {
+      type: 'object',
+      properties: { code: { type: 'string', pattern: '^[[:alpha:]]+$' } },
+    };
+    expect(validate({ code: '123' }, schema)).toEqual([]);
+  });
+
+  test('an escaped backslash before z is not RE2 \\z and stays enforced', () => {
+    const schema = {
+      type: 'object',
+      properties: { code: { type: 'string', pattern: '^a\\\\z$' } },
+    };
+    expect(validate({ code: 'a\\z' }, schema)).toEqual([]);
+    expect(validate({ code: 'az' }, schema)).toHaveLength(1);
+  });
+
+  test('a not-constraint whose pattern uses divergent RE2 syntax is skipped', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const schema = {
+      type: 'object',
+      properties: {
+        code: { type: 'string', allOf: [{ not: { pattern: 'foo\\z' } }] },
+      },
+    };
+    expect(validate({ code: 'fooz' }, schema)).toEqual([]);
+  });
+});

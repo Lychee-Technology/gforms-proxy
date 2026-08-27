@@ -30,14 +30,37 @@ const URI_RE = /^https?:\/\/.+/;
 // skipped — Google remains the final judge for those values.
 const patternCache = new Map<string, RegExp | null>();
 
+// Valid RE2 constructs that new RegExp() accepts with a different meaning:
+// \A / \z anchors, \Q...\E quoting, \p / \P classes (no `u` flag here), \C,
+// and POSIX classes like [[:alpha:]]. Misreading them would reject values
+// Google accepts, so they are treated as unevaluable like uncompilable ones.
+const RE2_DIVERGENT_ESCAPES = 'AzZQEpPC';
+const POSIX_CLASS_RE = /\[:\^?[a-zA-Z]+:\]/;
+
+function hasDivergentRe2Syntax(pattern: string): boolean {
+  for (let i = 0; i < pattern.length; i++) {
+    if (pattern[i] === '\\') {
+      const next = pattern[i + 1];
+      if (next !== undefined && RE2_DIVERGENT_ESCAPES.includes(next)) return true;
+      i++;
+    }
+  }
+  return POSIX_CLASS_RE.test(pattern);
+}
+
 function getPattern(pattern: string): RegExp | null {
   let re = patternCache.get(pattern);
   if (re === undefined) {
-    try {
-      re = new RegExp(pattern);
-    } catch {
-      console.warn(`Skipping uncompilable pattern: ${pattern}`);
+    if (hasDivergentRe2Syntax(pattern)) {
+      console.warn(`Skipping pattern with RE2-only semantics: ${pattern}`);
       re = null;
+    } else {
+      try {
+        re = new RegExp(pattern);
+      } catch {
+        console.warn(`Skipping uncompilable pattern: ${pattern}`);
+        re = null;
+      }
     }
     patternCache.set(pattern, re);
   }
