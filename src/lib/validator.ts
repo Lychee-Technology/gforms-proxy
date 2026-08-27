@@ -142,7 +142,9 @@ function validateProperty(
         const notSchema = sub['not'] as Schema;
         // A skipped (uncompilable) pattern inside `not` would leave notErrors
         // empty and invert into rejecting every value — skip the whole
-        // constraint instead.
+        // constraint instead. This holds however many keys the not-schema
+        // carries: rejecting requires the value to match every key including
+        // the unevaluable pattern, so a confident rejection is never possible.
         const notPattern = isObject(notSchema) ? notSchema['pattern'] : undefined;
         if (typeof notPattern === 'string' && getPattern(notPattern) === null) {
           continue;
