@@ -10,9 +10,11 @@ The submission endpoint validates request bodies against each form's JSON Schema
 
 ## Decision
 
-Write a purpose-built validator (`src/lib/validator.ts`) with no external dependencies that supports exactly the keyword subset `schema.ts` emits:
+Write a purpose-built validator (`src/lib/validator.ts`) with no external dependencies, targeting the keyword subset `schema.ts` emits. It currently validates:
 
-`type`, `required`, `enum`, `const`, `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `minLength`, `maxLength`, `format` (email, uri), `pattern`, `minItems`, `uniqueItems`, `allOf`, `not`, `anyOf`
+`type`, `required`, `enum`, `const`, `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `minLength`, `maxLength`, `format` (email and uri only), `pattern`, `minItems`, `uniqueItems`, `allOf`, `not`, `anyOf`
+
+One known gap: the generator also emits `format: date` and `format: time` for date/time questions, which the validator does not yet check — those values pass through unvalidated (#17).
 
 It returns a flat list of `{ field, message }` errors, which the route surfaces as a 400 response with structured `details`.
 
