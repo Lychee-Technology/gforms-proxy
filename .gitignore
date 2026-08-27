@@ -140,3 +140,4 @@ vite.config.ts.timestamp-*
 
 # Wrangler local dev cache
 .wrangler/
+docs/superpowers/
