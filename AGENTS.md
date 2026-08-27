@@ -1,6 +1,6 @@
 # AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code (claude.ai/code) when working in this repository.
 
 ## Commands
 
@@ -45,29 +45,21 @@ Tests live in `src/lib/__tests__/` and `scripts/__tests__/` (vitest with its def
 
 ## Non-code artifacts
 
-Design docs, specs, plans, research notes, assessments, anything produced
-during a task that is not code, must end up on GitHub, not only on disk.
+Anything a task produces that is not code (design docs, specs, plans, research notes, assessments) must end up on GitHub, not just on disk.
 
-- Post the artifact as a comment on the relevant issue. If the work has no
-  issue yet, create one first, or post to the PR when the artifact is about
-  changes already under review.
-- Post the full content, not a summary or a file path. Several child repos keep
-  planning notes in gitignored local directories (for example `__ref__/plan/`
-  in `ltbase.api`, see #497); a local working copy is fine, but it is invisible
-  to everyone else and does not survive the branch.
-- Do not force-add gitignored planning files to make them shareable. The issue
-  comment is the sharing mechanism.
-- Note in the comment which artifact it is and where the working copy lives, so
-  a later reader knows whether they are looking at a plan, a spec, or a review.
-- Anything that must become a durable repository convention still belongs in
-  that repo's `docs/` (an ADR, runbook, or reference page). The issue comment
-  records the thinking; `docs/` records the decision.
+- Write non-code artifacts in English by default.
+- Post the artifact as a comment on the relevant issue. If the work has no issue yet, create one first; if the artifact is about changes already under review, post it to the PR instead.
+- Post the full content, not a summary or a file path. Several child repos keep planning notes in gitignored local directories (for example `__ref__/plan/` in `ltbase.api`, see #497); a local working copy is fine, but it is invisible to everyone else and does not survive the branch.
+- Do not force-add gitignored planning files to make them shareable. The issue comment is the sharing mechanism.
+- Say in the comment which artifact it is and where the working copy lives, so a later reader knows whether they are looking at a plan, a spec, or a review.
+- Anything that must become a durable repository convention still belongs in that repo's `docs/` (an ADR, runbook, or reference page). The issue comment records the thinking; `docs/` records the decision.
 
 ## PR rules
 
-* Do not merge a PR unless I explicitly ask you to do so
-* When reviewing a PR, add findings / spec / standards / assessment / observations / verification / summary / etc. as a single comment to the PR
-* After a PR is merged, clean up local branches and worktrees, fast-forward main, then update and close related issues
+- Do not merge a PR unless I explicitly ask you to.
+- When reviewing a PR, post everything (findings, spec and standards checks, assessment, observations, verification, summary) as one comment on the PR.
+- When I ask you to merge a PR, squash-merge by default unless I ask for something else.
+- After a PR is merged, clean up local branches and worktrees, fast-forward main, then update and close related issues.
 
 ## Git conventions
 

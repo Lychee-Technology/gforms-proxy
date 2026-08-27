@@ -171,14 +171,38 @@ const applyValidationToSchema = (
   return schema;
 };
 
+// Keys the submission pipeline claims for itself; a form field can never own one.
+const RESERVED_KEYS = ['turnstile_token'];
+
+/**
+ * Resolves the final schema/fieldMap key for each of `count` fields: meta key
+ * when present, `field_N` fallback otherwise, then suffixed `_2`, `_3`, … on
+ * collision (including collisions with reserved keys). Both buildFieldMap and
+ * buildJsonSchema derive keys through this so they can never diverge.
+ * Always returns exactly `count` keys; callers' `??` fallbacks on indexed
+ * access exist only to satisfy noUncheckedIndexedAccess.
+ */
+const resolveFieldKeys = (count: number, metas: FieldMeta[]): string[] => {
+  const seen = new Set<string>(RESERVED_KEYS);
+  const keys: string[] = [];
+  for (let idx = 0; idx < count; idx++) {
+    const base = metas[idx]?.key ?? `field_${idx + 1}`;
+    let key = base;
+    for (let n = 2; seen.has(key); n++) key = `${base}_${n}`;
+    seen.add(key);
+    keys.push(key);
+  }
+  return keys;
+};
+
 export function buildFieldMap(
   fields: FieldDetail[],
   metas: FieldMeta[],
 ): Record<string, string> {
+  const keys = resolveFieldKeys(fields.length, metas);
   const map: Record<string, string> = {};
   fields.forEach((field, idx) => {
-    const key = metas[idx]?.key ?? `field_${idx + 1}`;
-    map[key] = field.entryId;
+    map[keys[idx] ?? `field_${idx + 1}`] = field.entryId;
   });
   return map;
 }
@@ -257,6 +281,7 @@ export function buildJsonSchema(
   prebuiltMetas?: FieldMeta[],
 ): Record<string, unknown> {
   const metas = prebuiltMetas ?? buildFieldsMeta(rawData.fields.map((f) => f.label));
+  const keys = resolveFieldKeys(rawData.fields.length, metas);
 
   const fieldDetails: FieldSchemaDetail[] = rawData.fields.map((field, idx) => {
     const meta = metas[idx] ?? {
@@ -267,7 +292,7 @@ export function buildJsonSchema(
     return {
       question: field.label,
       translated_question: meta.translated,
-      key: meta.key,
+      key: keys[idx] ?? meta.key,
       entry_id: field.entryId,
       type: field.typeLabel,
       type_code: field.typeCode ?? null,
