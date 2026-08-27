@@ -31,6 +31,6 @@ It returns a flat list of `{ field, message }` errors, which the route surfaces 
 
 - Validation runs on Workers with zero dependencies and no schema-compilation step.
 - The validator is not a general-purpose JSON Schema implementation. It is coupled to the generator: whenever `schema.ts` starts emitting a new keyword, `validator.ts` must learn it in the same change, with tests. `AGENTS.md` also records this rule.
-- Registered forms cannot deploy with patterns outside the verified semantic and native-execution-safe subset. This intentionally trades some local validation coverage for predictable Worker execution and agreement with Google.
+- Registered forms with patterns outside the verified semantic and native-execution-safe subset cannot deploy through the documented `pnpm run deploy` path. Direct Wrangler invocation bypasses this gate. The subset intentionally trades some local validation coverage for predictable Worker execution and agreement with Google.
 - Error messages are our own format, written for API consumers, rather than ajv's error objects.
 - The validator ignores keywords it does not recognize instead of rejecting them, so code review, not the runtime, enforces the coupling rule above.

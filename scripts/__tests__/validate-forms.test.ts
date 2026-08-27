@@ -49,7 +49,5 @@ describe('validateRegisteredForms', () => {
 
 test('deployment scripts validate forms before Wrangler runs', () => {
   expect(packageJson.scripts.predeploy).toBe('pnpm validate:forms');
-  expect(packageJson.scripts.deploy).toBe(
-    'pnpm validate:forms && wrangler deploy',
-  );
+  expect(packageJson.scripts.deploy).toBe('wrangler deploy');
 });
