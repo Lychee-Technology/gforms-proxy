@@ -1,4 +1,4 @@
-import { toJavaScriptRegexSource } from './re2-compat.js';
+import { toJavaScriptRegexSource, JS_REGEX_FLAGS } from './re2-compat.js';
 
 export interface ValidationError {
   field: string;
@@ -42,7 +42,7 @@ function getPattern(pattern: string): RegExp | null {
       re = null;
     } else {
       try {
-        re = new RegExp(source);
+        re = new RegExp(source, JS_REGEX_FLAGS);
       } catch {
         console.warn(`Skipping uncompilable pattern: ${pattern}`);
         re = null;

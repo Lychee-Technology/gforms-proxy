@@ -6,29 +6,45 @@
  * so a construct missing from the whitelist fails open instead of being
  * silently misread.
  *
- * Verified-identical and kept as-is: literals, escaped ASCII punctuation,
- * \d \D \w \W (ASCII in both), \b \B outside classes, \t \n \r \f \v,
- * two-digit \xHH, ^ $ (end of text in both without flags), alternation,
- * quantifiers, character classes and ranges, capturing and (?: groups.
+ * Output must be compiled with JS_REGEX_FLAGS ('u'). RE2 matches over code
+ * points; JavaScript without the u flag matches UTF-16 code units, letting a
+ * backtracking engine satisfy two single-character constructs (`..`, `\S\S`,
+ * `[^x][^x]`) with the two halves of one surrogate pair. The u flag makes
+ * every construct code-point-atomic, closing that gap wholesale.
  *
- * Translated exactly: `.` (RE2: any code point except \n; JavaScript also
- * excludes \r and Unicode line separators, and matches code units, not
- * points) and \s / \S (RE2: ASCII [\t\n\f\r ]; JavaScript adds Unicode
- * whitespace).
+ * Verified-identical and kept as-is: literals, \d \D \w \W (ASCII in both),
+ * \b \B outside classes, \t \n \r \f \v, two-digit \xHH, ^ $ (end of text in
+ * both without flags), alternation, quantifiers, character classes and
+ * ranges, capturing and (?: groups.
+ *
+ * Translated exactly: `.` becomes [^\n] (RE2's dot also matches \r and
+ * Unicode line separators); \s / \S become RE2's ASCII class [\t\n\f\r ]
+ * (JavaScript's add Unicode whitespace); escaped ASCII punctuation and
+ * literal { } ] are emitted as \xHH escapes, because the u flag rejects
+ * identity escapes of non-syntax characters and lone brace/bracket literals
+ * that both engines otherwise accept.
  *
  * Everything else returns null: inline flags, \A \z \Q...\E \p \C \a, braced
  * hex and octal/backreference digit escapes, POSIX classes, lookarounds,
- * named groups, and patterns containing lone surrogates or non-BMP literals
- * (JavaScript would quantify a code unit where RE2 quantifies a code point).
+ * named groups, and patterns containing surrogates (non-BMP literals are
+ * conservatively delegated to Google rather than re-encoded).
  */
 
-// One RE2 `.`: a surrogate pair (full code point) or any single unit but \n.
-const DOT = '(?:[\\uD800-\\uDBFF][\\uDC00-\\uDFFF]|[^\\n])';
+export const JS_REGEX_FLAGS = 'u';
+
+// One RE2 `.`: any code point except \n. Under the u flag a negated class
+// matches a full code point atomically, unlike `.` without flags, which also
+// excludes \r and Unicode line separators.
+const DOT = '[^\\n]';
 const RE2_SPACE = '\\t\\n\\f\\r ';
+// {n} {n,} {n,m} — the only brace forms both engines read as quantifiers.
+const QUANTIFIER = /^\{\d+(?:,\d*)?\}/;
 
 const isHexPair = (s: string): boolean => /^[0-9A-Fa-f]{2}$/.test(s);
 const isAsciiPunct = (c: string): boolean =>
   c.charCodeAt(0) < 128 && !/[A-Za-z0-9]/.test(c);
+const hexEscape = (c: string): string =>
+  '\\x' + c.charCodeAt(0).toString(16).padStart(2, '0');
 
 export function toJavaScriptRegexSource(pattern: string): string | null {
   let out = '';
@@ -56,7 +72,9 @@ export function toJavaScriptRegexSource(pattern: string): string | null {
         out += pattern.slice(i, i + 4);
         i += 4;
       } else if (isAsciiPunct(next)) {
-        out += '\\' + next;
+        // The u flag rejects identity escapes of non-syntax punctuation
+        // (\!, \-, \@ …); a hex escape means the same thing in both engines.
+        out += hexEscape(next);
         i += 2;
       } else {
         return null;
@@ -84,6 +102,21 @@ export function toJavaScriptRegexSource(pattern: string): string | null {
       if (pattern[i + 2] !== ':') return null;
       out += '(?:';
       i += 3;
+    } else if (ch === '{') {
+      // Both engines read {n}/{n,}/{n,m} as a quantifier; any other brace is
+      // a literal in RE2, which the u flag only accepts escaped.
+      const quant = QUANTIFIER.exec(pattern.slice(i));
+      if (quant) {
+        out += quant[0];
+        i += quant[0].length;
+      } else {
+        out += hexEscape(ch);
+        i++;
+      }
+    } else if (ch === '}' || ch === ']') {
+      // Literal in RE2 outside a class/quantifier; the u flag rejects it bare.
+      out += hexEscape(ch);
+      i++;
     } else {
       out += ch;
       i++;

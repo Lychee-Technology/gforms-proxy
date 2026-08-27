@@ -441,4 +441,46 @@ describe('validate — patterns are evaluated with RE2 semantics', () => {
     };
     expect(validate({ code: 'anything' }, schema)).toEqual([]);
   });
+
+  test('a matches-style ^..$ counts code points: one emoji rejected, two accepted', () => {
+    const schema = {
+      type: 'object',
+      properties: { code: { type: 'string', pattern: '^(?:..)$' } },
+    };
+    expect(validate({ code: '\u{1F600}' }, schema)).toHaveLength(1);
+    expect(validate({ code: '\u{1F600}\u{1F600}' }, schema)).toEqual([]);
+    expect(validate({ code: 'ab' }, schema)).toEqual([]);
+  });
+
+  test('a does_not_match-style not ^..$ counts code points: one emoji accepted, two rejected', () => {
+    const schema = {
+      type: 'object',
+      properties: {
+        code: { type: 'string', allOf: [{ not: { pattern: '^(?:..)$' } }] },
+      },
+    };
+    expect(validate({ code: '\u{1F600}' }, schema)).toEqual([]);
+    expect(validate({ code: '\u{1F600}\u{1F600}' }, schema)).toHaveLength(1);
+  });
+});
+
+describe('validate — patterns that pass translation but fail to compile', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  test('an unbalanced group does not throw, warns once, and skips only the pattern check', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const schema = {
+      type: 'object',
+      properties: { code: { type: 'string', pattern: '(', minLength: 3 } },
+    };
+    expect(() => validate({ code: 'x' }, schema)).not.toThrow();
+    const errors = validate({ code: 'x' }, schema);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]?.message).toContain('at least 3');
+    expect(validate({ code: 'long enough' }, schema)).toEqual([]);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('uncompilable'));
+  });
 });

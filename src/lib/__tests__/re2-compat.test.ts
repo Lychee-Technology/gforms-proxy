@@ -1,10 +1,10 @@
 import { describe, test, expect } from 'vitest';
-import { toJavaScriptRegexSource } from '../re2-compat.js';
+import { toJavaScriptRegexSource, JS_REGEX_FLAGS } from '../re2-compat.js';
 
 const compile = (pattern: string): RegExp => {
   const source = toJavaScriptRegexSource(pattern);
   expect(source).not.toBeNull();
-  return new RegExp(source as string);
+  return new RegExp(source as string, JS_REGEX_FLAGS);
 };
 
 describe('toJavaScriptRegexSource — verified-identical constructs pass through', () => {
@@ -47,6 +47,47 @@ describe('toJavaScriptRegexSource — exact translations', () => {
     const re = compile('^[\\s,]+$');
     expect(re.test(' ,\t')).toBe(true);
     expect(re.test('\u00A0')).toBe(false);
+  });
+});
+
+describe('toJavaScriptRegexSource \u2014 code-point semantics (RE2 matches code points, not units)', () => {
+  test('two dots require two code points: one emoji cannot satisfy both', () => {
+    const re = compile('^..$');
+    expect(re.test('\u{1F600}')).toBe(false);
+    expect(re.test('\u{1F600}\u{1F600}')).toBe(true);
+    expect(re.test('ab')).toBe(true);
+  });
+
+  test('a quantified dot counts code points', () => {
+    const re = compile('^.{2}$');
+    expect(re.test('\u{1F600}')).toBe(false);
+    expect(re.test('\u{1F600}\u{1F600}')).toBe(true);
+  });
+
+  test('\\S\\S requires two code points', () => {
+    const re = compile('^\\S\\S$');
+    expect(re.test('\u{1F600}')).toBe(false);
+    expect(re.test('\u{1F600}\u{1F600}')).toBe(true);
+  });
+
+  test('a negated character class matches a full code point atomically', () => {
+    const re = compile('^[^x][^x]$');
+    expect(re.test('\u{1F600}')).toBe(false);
+    expect(re.test('\u{1F600}\u{1F600}')).toBe(true);
+  });
+
+  test('literal braces and brackets outside quantifiers stay enforced as literals', () => {
+    expect(compile('^a{$').test('a{')).toBe(true);
+    expect(compile('^a{,2}$').test('a{,2}')).toBe(true);
+    expect(compile('^a]$').test('a]')).toBe(true);
+    const quant = compile('^a{2,3}$');
+    expect(quant.test('aa')).toBe(true);
+    expect(quant.test('a{2,3}')).toBe(false);
+  });
+
+  test('escaped punctuation survives the stricter compile', () => {
+    expect(compile('^\\-\\!$').test('-!')).toBe(true);
+    expect(compile('^a\\\\z$').test('a\\z')).toBe(true);
   });
 });
 
