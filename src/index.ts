@@ -6,7 +6,7 @@ import { buildJsonSchema } from './lib/schema.js';
 import registry from './forms/registry.js';
 import { validate } from './lib/validator.js';
 import { submitToGoogleForms, SubmissionError } from './lib/submitter.js';
-import { verifyTurnstile, TurnstileError } from './lib/turnstile.js';
+import { verifyTurnstile, TurnstileError, TurnstileServiceError } from './lib/turnstile.js';
 
 export interface Env {
   TURNSTILE_SECRET_KEY: string;
@@ -73,13 +73,20 @@ app.post('/api/v1/forms/:formId/responses', async (c) => {
   }
 
   if (definition.turnstileEnabled) {
-    const token = body['turnstile_token'] as string;
+    const token = body['turnstile_token'];
+    if (typeof token !== 'string' || token === '') {
+      return c.json({ error: 'Missing or invalid turnstile_token' }, 400);
+    }
     const remoteIp = c.req.header('CF-Connecting-IP');
     try {
       await verifyTurnstile(token, c.env.TURNSTILE_SECRET_KEY, remoteIp);
     } catch (err) {
       if (err instanceof TurnstileError) {
         return c.json({ error: 'Turnstile verification failed' }, 400);
+      }
+      if (err instanceof TurnstileServiceError) {
+        console.error('Turnstile service error:', err.message);
+        return c.json({ error: 'Turnstile verification is temporarily unavailable' }, 503);
       }
       console.error('Unexpected Turnstile error:', err);
       return c.json({ error: 'Internal server error' }, 500);
