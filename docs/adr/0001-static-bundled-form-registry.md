@@ -19,5 +19,5 @@ The `/schema` endpoints remain stateless and work on any public form; only the s
 - The Worker needs no storage bindings and does no reads at runtime. A form definition is exactly as current as the last deploy, with no eventual-consistency questions to reason about.
 - Form definitions are version controlled and reviewed alongside the code that consumes them.
 - Adding or updating a form requires a deploy. That is acceptable: registering a form is a deliberate developer action that happens rarely (see ADR 0004 for the generation step).
-- The Worker only submits to forms that were explicitly registered, so the registry doubles as an allowlist. Nobody can use the proxy to spam arbitrary Google Forms.
+- The Worker only submits to forms that were explicitly registered, so the registry doubles as an allowlist: the proxy cannot be pointed at unregistered forms. This is not an anti-abuse control for the forms that are registered — the submission route is public with no authentication or rate limiting, and per-form Turnstile verification (when enabled) is the only abuse check.
 - If a Google Form's structure changes upstream, the bundled definition goes stale until someone regenerates and redeploys. Nothing at runtime detects the drift.

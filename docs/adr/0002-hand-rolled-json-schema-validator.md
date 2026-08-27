@@ -14,7 +14,10 @@ Write a purpose-built validator (`src/lib/validator.ts`) with no external depend
 
 `type`, `required`, `enum`, `const`, `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `minLength`, `maxLength`, `format` (email and uri only), `pattern`, `minItems`, `uniqueItems`, `allOf`, `not`, `anyOf`
 
-One known gap: the generator also emits `format: date` and `format: time` for date/time questions, which the validator does not yet check — those values pass through unvalidated (#17).
+Two known gaps where the generator emits constructs the validator does not yet check:
+
+- `format: date` and `format: time` on date/time questions pass through unvalidated (#17).
+- Grid questions become objects with a schema-valued `additionalProperties`, but the validator does not recurse into object entries, so grid values are only checked to be objects (#18).
 
 It returns a flat list of `{ field, message }` errors, which the route surfaces as a 400 response with structured `details`.
 
