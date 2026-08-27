@@ -16,7 +16,8 @@
  * \b \B outside classes, \t \n \r \f \v, two-digit \xHH, ^ $ (end of text in
  * both without flags), alternation, character classes and ranges, capturing
  * and (?: groups. At most one single-atom quantifier is accepted; unbounded
- * quantifiers additionally require a leading ^ anchor.
+ * quantifiers additionally require a leading ^ anchor and no top-level
+ * alternation.
  *
  * Translated exactly: `.` becomes [^\n] (RE2's dot also matches \r and
  * Unicode line separators); \s / \S become RE2's ASCII class [\t\n\f\r ]
@@ -51,7 +52,10 @@ export function toJavaScriptRegexSource(pattern: string): string | null {
   let out = '';
   let inClass = false;
   let repetitionSeen = false;
+  let unboundedRepetitionSeen = false;
   let canBeLazy = false;
+  let groupDepth = 0;
+  let topLevelAlternation = false;
   let quantifiable: 'atom' | 'group' | null = null;
   for (let i = 0; i < pattern.length; ) {
     const ch = pattern[i] as string;
@@ -75,6 +79,7 @@ export function toJavaScriptRegexSource(pattern: string): string | null {
           ch === '*' || ch === '+' || quantifier.endsWith(',}');
         if (unbounded && !pattern.startsWith('^')) return null;
         repetitionSeen = true;
+        unboundedRepetitionSeen = unbounded;
         out += quantifier;
         i += quantifier.length;
         canBeLazy = true;
@@ -145,14 +150,17 @@ export function toJavaScriptRegexSource(pattern: string): string | null {
       if (pattern[i + 2] !== ':') return null;
       out += '(?:';
       i += 3;
+      groupDepth++;
       quantifiable = null;
     } else if (ch === '(') {
       out += ch;
       i++;
+      groupDepth++;
       quantifiable = null;
     } else if (ch === ')') {
       out += ch;
       i++;
+      if (groupDepth > 0) groupDepth--;
       quantifiable = 'group';
     } else if (ch === '{') {
       // Any brace form not consumed as a quantifier is a literal in RE2,
@@ -165,7 +173,12 @@ export function toJavaScriptRegexSource(pattern: string): string | null {
       out += hexEscape(ch);
       i++;
       quantifiable = 'atom';
-    } else if (ch === '^' || ch === '$' || ch === '|') {
+    } else if (ch === '|') {
+      out += ch;
+      i++;
+      if (groupDepth === 0) topLevelAlternation = true;
+      quantifiable = null;
+    } else if (ch === '^' || ch === '$') {
       out += ch;
       i++;
       quantifiable = null;
@@ -175,5 +188,7 @@ export function toJavaScriptRegexSource(pattern: string): string | null {
       quantifiable = 'atom';
     }
   }
-  return inClass ? null : out;
+  return inClass || (unboundedRepetitionSeen && topLevelAlternation)
+    ? null
+    : out;
 }
