@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { main } from '../gen-field-mapping.js';
@@ -17,6 +17,20 @@ const MINIMAL_PAYLOAD = JSON.stringify([
 
 const MINIMAL_HTML = `<html><head><title>Test Form - Google Forms</title></head>
 <body><script>var FB_PUBLIC_LOAD_DATA_ = ${MINIMAL_PAYLOAD};\n</script></body></html>`;
+
+const DATE_PAYLOAD = JSON.stringify([
+  null,
+  [
+    null,
+    [
+      [null, 'What is your name?', '', 0, [[123456, null, 1]]],
+      [null, 'Pick a date', '', 9, [[654321, null, 1]]],
+    ],
+  ],
+]);
+
+const DATE_HTML = `<html><head><title>Date Form - Google Forms</title></head>
+<body><script>var FB_PUBLIC_LOAD_DATA_ = ${DATE_PAYLOAD};\n</script></body></html>`;
 
 let workDir: string;
 let originalCwd: string;
@@ -109,5 +123,18 @@ describe('main() acceptance paths', () => {
     expect(definition.schema.required ?? []).not.toContain('turnstile_token');
     // Regeneration actually happened: parsed fields are present
     expect(Object.keys(definition.fieldMap)).toHaveLength(2);
+  });
+});
+
+describe('main() unsupported field types', () => {
+  test('refuses to generate a definition for a form with a date question', async () => {
+    const formId = 'dateForm123';
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(DATE_HTML)));
+
+    await expect(
+      main(['node', 'gen-field-mapping.ts', '--url', `https://docs.google.com/forms/d/e/${formId}/viewform`]),
+    ).rejects.toThrow(/Pick a date/);
+
+    expect(existsSync(definitionPath(formId))).toBe(false);
   });
 });

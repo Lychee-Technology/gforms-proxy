@@ -64,6 +64,38 @@ describe('submitToGoogleForms — URL encoding', () => {
   });
 });
 
+describe('submitToGoogleForms — object value guard', () => {
+  test('throws SubmissionError on object-typed value without calling fetch', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('', { status: 200 }));
+
+    await expect(
+      submitToGoogleForms(SUBMISSION_URL, FIELD_MAP, {
+        full_name: { 'Row 1': 'Option A' },
+      }),
+    ).rejects.toThrow(SubmissionError);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  test('throws SubmissionError when an array value contains an object item', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('', { status: 200 }));
+
+    await expect(
+      submitToGoogleForms(SUBMISSION_URL, FIELD_MAP, {
+        tags: ['ok', { nested: true }],
+      }),
+    ).rejects.toThrow(SubmissionError);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  test('error message names the offending field key', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('', { status: 200 }));
+
+    await expect(
+      submitToGoogleForms(SUBMISSION_URL, FIELD_MAP, { email: { a: 1 } }),
+    ).rejects.toThrow(/email/);
+  });
+});
+
 describe('submitToGoogleForms — HTTP behavior', () => {
   test('POSTs to submissionUrl with correct Content-Type', async () => {
     let capturedUrl: string | null = null;

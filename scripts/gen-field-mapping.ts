@@ -12,6 +12,7 @@ import { pathToFileURL } from 'node:url';
 import { extractFormId, fetchAndParseForm, validateFormUrl } from '../src/lib/parser.js';
 import { assertDeployablePatterns } from '../src/lib/pattern-policy.js';
 import { buildJsonSchema, buildFieldMap } from '../src/lib/schema.js';
+import { assertSupportedFieldTypes } from './field-support.js';
 import { buildFieldsMetaWithGemini } from './gemini.js';
 import { checkTurnstileDowngrade } from './turnstile-guard.js';
 import type { FormDefinition } from '../src/lib/types.js';
@@ -72,6 +73,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   console.error(`Fetching form: ${url}`);
   const rawData = await fetchAndParseForm(url);
   console.error(`Found ${rawData.fields.length} fields in: ${rawData.formTitle}`);
+  // Refuse doomed forms before spending Gemini calls on them.
+  assertSupportedFieldTypes(rawData.formId, rawData.fields);
 
   const metas = await buildFieldsMetaWithGemini(rawData.fields.map((f) => f.label), apiKey);
   const baseSchema = buildJsonSchema(rawData, metas);
