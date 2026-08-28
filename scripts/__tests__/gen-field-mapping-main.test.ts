@@ -59,6 +59,7 @@ describe('main() acceptance paths', () => {
     expect(definition.schema.properties).not.toHaveProperty('turnstile_token');
     expect(Object.keys(definition.fieldMap)).toHaveLength(2);
     expect(Object.values(definition.fieldMap)).toContain('entry.123456');
+    expect(console.error).toHaveBeenCalledWith('  2. pnpm run deploy');
   });
 
   test('regenerating with --turnstile keeps turnstileEnabled and the turnstile_token splice', async () => {

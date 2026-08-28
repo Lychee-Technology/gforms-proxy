@@ -1,5 +1,6 @@
 import { describe, test, expect } from 'vitest';
 import { buildJsonSchema, buildFieldMap } from '../schema.js';
+import { validate } from '../validator.js';
 import type { RawFormData, FieldDetail, FieldMeta } from '../types.js';
 
 const BASE_DATA: RawFormData = {
@@ -237,5 +238,93 @@ describe('key deduplication', () => {
     expect(Object.keys(schema.properties as Record<string, unknown>)).toEqual(
       Object.keys(fieldMap),
     );
+  });
+});
+
+describe('regular_expression validation anchoring', () => {
+  const makeField = (validation: FieldDetail['validation']): FieldDetail => ({
+    label: 'Code',
+    entryId: 'entry.7',
+    typeCode: 0,
+    typeLabel: 'short_answer',
+    options: [],
+    required: false,
+    validation,
+  });
+
+  const build = (validation: FieldDetail['validation']) => {
+    const schema = buildJsonSchema({ formTitle: 'T', formId: 'id', fields: [makeField(validation)] });
+    return (schema.properties as any).field_1;
+  };
+
+  test('matches emits an anchored full-match pattern', () => {
+    const prop = build({ type: 'regular_expression', operator: 'matches', values: ['[a-z]+\\d'] });
+    expect(prop.pattern).toBe('^(?:[a-z]+\\d)$');
+  });
+
+  test('does_not_match emits an anchored not-constraint pattern', () => {
+    const prop = build({ type: 'regular_expression', operator: 'does_not_match', values: ['[a-z]+\\d'] });
+    expect(prop.allOf).toEqual([{ not: { pattern: '^(?:[a-z]+\\d)$' } }]);
+  });
+
+  test('regex contains stays unanchored', () => {
+    const prop = build({ type: 'regular_expression', operator: 'contains', values: ['[a-z]+\\d'] });
+    expect(prop.pattern).toBe('[a-z]+\\d');
+  });
+
+  test('regex does_not_contain stays unanchored', () => {
+    const prop = build({ type: 'regular_expression', operator: 'does_not_contain', values: ['[a-z]+\\d'] });
+    expect(prop.allOf).toEqual([{ not: { pattern: '[a-z]+\\d' } }]);
+  });
+
+  test('matches: a partial match fails validate() while a full match passes', () => {
+    const schema = buildJsonSchema({
+      formTitle: 'T',
+      formId: 'id',
+      fields: [makeField({ type: 'regular_expression', operator: 'matches', values: ['[a-z]+\\d'] })],
+    });
+    expect(validate({ field_1: 'abc1x' }, schema as Record<string, unknown>)).toHaveLength(1);
+    expect(validate({ field_1: 'abc1' }, schema as Record<string, unknown>)).toEqual([]);
+  });
+
+  test('does_not_match: only a full match fails validate(), a partial match passes', () => {
+    const schema = buildJsonSchema({
+      formTitle: 'T',
+      formId: 'id',
+      fields: [makeField({ type: 'regular_expression', operator: 'does_not_match', values: ['[a-z]+\\d'] })],
+    });
+    expect(validate({ field_1: 'abc1' }, schema as Record<string, unknown>)).toHaveLength(1);
+    expect(validate({ field_1: 'abc1x' }, schema as Record<string, unknown>)).toEqual([]);
+  });
+});
+
+describe('text contains validation', () => {
+  const build = (operator: 'contains' | 'does_not_contain') => {
+    const field: FieldDetail = {
+      label: 'Code',
+      entryId: 'entry.8',
+      typeCode: 0,
+      typeLabel: 'short_answer',
+      options: [],
+      required: false,
+      validation: { type: 'text', operator, values: ['a.b'] },
+    };
+    return buildJsonSchema({ formTitle: 'T', formId: 'id', fields: [field] });
+  };
+
+  test('contains emits only the escaped literal and validates by partial match', () => {
+    const schema = build('contains');
+    expect((schema.properties as any).field_1.pattern).toBe('a\\.b');
+    expect(validate({ field_1: 'prefix a.b suffix' }, schema)).toEqual([]);
+    expect(validate({ field_1: 'prefix acb suffix' }, schema)).toHaveLength(1);
+  });
+
+  test('does_not_contain inverts only the escaped literal partial match', () => {
+    const schema = build('does_not_contain');
+    expect((schema.properties as any).field_1.allOf).toEqual([
+      { not: { pattern: 'a\\.b' } },
+    ]);
+    expect(validate({ field_1: 'prefix a.b suffix' }, schema)).toHaveLength(1);
+    expect(validate({ field_1: 'prefix acb suffix' }, schema)).toEqual([]);
   });
 });

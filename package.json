@@ -5,7 +5,8 @@
   "private": true,
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
+    "validate:forms": "tsx scripts/validate-forms.ts",
+    "deploy": "pnpm validate:forms && wrangler deploy",
     "test": "vitest run --reporter=verbose",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.scripts.json",
