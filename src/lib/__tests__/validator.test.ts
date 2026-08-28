@@ -764,7 +764,7 @@ describe('validate — the per-request pattern budget', () => {
     validate({ code: value }, schema);
     validate({ code: `${value}y` }, schema);
     expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn.mock.calls[0]?.[0]).toContain(`${BUDGET} code points`);
+    expect(warn.mock.calls[0]?.[0]).toContain(`${BUDGET}-code-point pattern budget`);
   });
 
   test('two values that each fit alone do not both fit the request', () => {

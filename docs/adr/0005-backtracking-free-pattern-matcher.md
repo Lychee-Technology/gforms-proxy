@@ -154,22 +154,38 @@ through the input, and never carried a saturated thread set.
 
 Measured on a developer laptop (Node 22, darwin/arm64), over a non-matching
 input of 10,000 `a`s, the worst pattern found was
-`(?:[^bd]|[^ce]){999}b` — 3998 instructions and 3997 ranges — at about 750 ms
-warm, and up to about 1.1 s across runs. Because the budget is per request,
-that is also the worst case for a whole request: ten such fields each holding a
-10,000-code-point value cost the same 750 ms, since the budget is spent once.
-Under the earlier per-value cap the same body cost 7.5 s.
+`(?:[^bd]|[^ce]){999}b` — 3998 instructions and 3997 ranges — at a median of
+735 ms, and up to 1111 ms across runs. Because the budget is per request, that
+is also the worst case for a whole request: ten such fields each holding a
+10,000-code-point value cost the same 735 ms, since the budget is spent once.
+Under the earlier per-value cap the same body cost ten times that.
 
 The shape of the worst case corrects the causal story too. `m` dominates: every
 top candidate saturates the instruction budget, and the alternation shapes are
 slower than the range-saturated ones because thread count and epsilon-closure
 structure — both governed by `MAX_PROGRAM_SIZE` — cost more than range
-scanning. `(?:[^b]|[^c]){999}b` uses only 1999 of the 4000 ranges and still
-runs at about 900 ms, while `\w{1000}` saturates R exactly and takes 18 ms. The
-range budget is worth having: it closes the case of 4000 instructions each
-scanning thousands of ranges, which `MAX_PROGRAM_SIZE` alone does not bound.
-But it is not the binding factor in the worst case, and this ADR should not be
-read as saying the worst case saturates it.
+scanning. The figures that follow come from the same interleaved run as the
+735 ms above, so they are directly comparable to each other rather than to a
+different session. (Every figure quoted in this ADR is measured on an input the
+pattern does not match. That constraint is deliberate: a matching probe returns
+at the first `match` instruction and never carries a saturated thread set, which
+is how the seven-times-too-low figure got in.)
+
+`(?:[^b]|[^c]){999}b` — 3998 instructions, 1999 ranges — runs at 724 ms, which
+is statistically tied with the 3997-range champion's 735 ms: halving R changes
+nothing measurable. `\w{999}z` — 1001 instructions, 3997 ranges — carries the
+same range count as the champion at a quarter of its instruction count, and
+takes 206 ms. And
+`[^b]{1000}[^b]{1000}[^b]{1000}[^b]{994}z` — 3995 instructions, 3995 ranges —
+carries more `char` instructions than the champion and effectively as many
+ranges, yet runs at 589 ms, because its thread structure has half the
+epsilon-closure churn. That last comparison is the cleanest evidence that
+thread structure, not R, is the dominating term.
+
+The range budget is still worth having: it closes the case of 4000 instructions
+each scanning thousands of ranges, which `MAX_PROGRAM_SIZE` alone does not
+bound. But it is not the binding factor in the worst case, and this ADR should
+not be read as saying the worst case saturates it.
 
 Roughly a second of CPU for one request is a real cost and is worth watching.
 It is a bound: it holds for every pattern the parser accepts, and no request

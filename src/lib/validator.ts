@@ -91,8 +91,8 @@ function warnBudgetExhausted(pattern: string): void {
   if (oversizedInputWarned.has(pattern)) return;
   oversizedInputWarned.add(pattern);
   console.warn(
-    `Skipping pattern (over the remaining request budget of ` +
-      `${MAX_PATTERN_CODE_POINTS_PER_REQUEST} code points): ${pattern}`,
+    `Skipping pattern (value exceeds what is left of the request's ` +
+      `${MAX_PATTERN_CODE_POINTS_PER_REQUEST}-code-point pattern budget): ${pattern}`,
   );
 }
 

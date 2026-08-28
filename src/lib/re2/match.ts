@@ -11,8 +11,10 @@
  * here, because `test` returns a boolean and must not acquire a third "don't
  * know" state. The product is therefore bounded in magnitude, not only in
  * shape, and bounded per request rather than only per value. m dominates in
- * practice: the measured worst case saturates the instruction budget while
- * using half the range budget (ADR 0005).
+ * practice: the measured worst case saturates the instruction budget, and
+ * saturating the range budget on top of that makes no measurable difference.
+ * A 3997-range shape and a 1999-range shape came out at 735 ms and 724 ms in
+ * the same interleaved run, i.e. statistically tied (ADR 0005).
  *
  * There are no captures and no leftmost-longest bookkeeping. A JSON Schema
  * `pattern` asks only whether a match exists, which also makes greedy and lazy
