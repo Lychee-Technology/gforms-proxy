@@ -6,6 +6,9 @@ import type { FieldDetail } from '../src/lib/types.js';
  * "[object Object]", and date/time need entry.X_year/_month/_day parameters
  * the submitter never sends. Refuse to generate a definition containing
  * them instead of corrupting data (#6).
+ *
+ * Keep in sync with QUESTION_TYPE_MAP codes 6, 7, 9, 10 (src/lib/types.ts);
+ * a test asserts every label here exists in that map.
  */
 export const UNSUPPORTED_TYPE_LABELS: ReadonlySet<string> = new Set([
   'grid',
@@ -24,6 +27,6 @@ export function assertSupportedFieldTypes(formId: string, fields: FieldDetail[])
   throw new Error(
     `Form ${formId} contains question types that are not supported yet:\n${details}\n` +
       'Grid, date, and time questions cannot be submitted correctly; ' +
-      'remove them from the form or wait for support (issue #6).',
+      'remove them from the form or wait for support (issue #23).',
   );
 }

@@ -1,5 +1,6 @@
 import { describe, test, expect } from 'vitest';
 import { assertSupportedFieldTypes, UNSUPPORTED_TYPE_LABELS } from '../field-support.js';
+import { QUESTION_TYPE_MAP } from '../../src/lib/types.js';
 import type { FieldDetail } from '../../src/lib/types.js';
 
 const field = (label: string, typeCode: number, typeLabel: string): FieldDetail => ({
@@ -50,5 +51,12 @@ describe('assertSupportedFieldTypes', () => {
       'multiple_choice_grid',
       'time',
     ]);
+  });
+
+  test('every unsupported label is a real QUESTION_TYPE_MAP label', () => {
+    const knownLabels = new Set(Object.values(QUESTION_TYPE_MAP));
+    for (const label of UNSUPPORTED_TYPE_LABELS) {
+      expect(knownLabels).toContain(label);
+    }
   });
 });
