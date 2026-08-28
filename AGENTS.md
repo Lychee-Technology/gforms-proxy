@@ -20,10 +20,12 @@ Use `pnpm run deploy`, not `pnpm deploy`, so the project deploy script validates
 Generate a form definition (writes `src/forms/<formId>.json`):
 
 ```bash
-pnpm exec tsx scripts/gen-field-mapping.ts --url <viewform_url> [--gemini-key <key>] [--turnstile] [--force]
+pnpm exec tsx scripts/gen-field-mapping.ts --url <viewform_url> [--gemini-key <key>] [--turnstile] [--force] [--allow-unevaluable-patterns]
 ```
 
 `--gemini-key` (or the `GEMINI_API_KEY` env var) enables Gemini-generated field keys and translations; without it, `buildFieldsMeta` falls back to mechanical `field_N` keys. `--turnstile` marks the form as Turnstile-protected. Regenerating a form whose existing JSON has `turnstileEnabled: true` without `--turnstile` aborts (the guard lives in `scripts/turnstile-guard.ts`); pass `--force` to strip protection intentionally.
+
+`--allow-unevaluable-patterns` records `unevaluablePatternsAllowed: true` in the definition, which downgrades the pattern gate from an error to a warning for both the generator and `pnpm validate:forms`. Use it only when a form's regex is outside the supported RE2 subset and cannot be simplified: the affected field is then checked by Google alone.
 
 ## Architecture
 
@@ -38,12 +40,12 @@ Data flows through `src/lib/`:
 
 - `parser.ts` fetches the form HTML and extracts the `FB_PUBLIC_LOAD_DATA_` embedded array (question labels, type codes, options, required flags, validation rules). The reverse-engineered format is documented in `google-forms-internals.md`; the type-code and validation-code tables live in `types.ts`.
 - `schema.ts` turns parsed data into the JSON Schema and fieldMap. Grid questions become nested objects; validation rules map to JSON Schema keywords.
-- `validator.ts` is a hand-rolled validator for the JSON Schema subset that `schema.ts` emits (no ajv, so it runs fine on Workers). If `schema.ts` starts emitting a new keyword, `validator.ts` must learn it too. `pattern` checks are delegated through `re2-compat.ts` and fail open: a pattern outside the verified subset is skipped with one cached warning, leaving Google as the final judge (ADR 0002).
-- `re2-compat.ts` translates Google Forms (RE2) patterns into JavaScript RegExp source with identical semantics, or returns `null` for anything outside a verified, ReDoS-safe subset.
-- `pattern-policy.ts` walks a schema for patterns outside that subset. Build-time only (nothing in the Worker imports it); it lives in `src/lib/` because it depends on `re2-compat.ts`.
+- `validator.ts` is a hand-rolled validator for the JSON Schema subset that `schema.ts` emits (no ajv, so it runs fine on Workers). If `schema.ts` starts emitting a new keyword, `validator.ts` must learn it too. `pattern` checks are delegated to `re2/` and fail open: a pattern outside the supported subset is skipped with one cached warning, leaving Google as the final judge (ADR 0002).
+- `re2/` parses a Google Forms (RE2) pattern into an AST and runs it on a Thompson NFA simulation — no backtracking, so execution is O(n·m) whatever the pattern's shape (ADR 0005). `re2/to-js-source.ts` renders the same AST as JavaScript RegExp source and exists only as the differential-testing oracle; nothing in the Worker imports it.
+- `pattern-policy.ts` walks a schema for patterns `re2/` cannot evaluate. Build-time only (nothing in the Worker imports it); it lives in `src/lib/` because it depends on `re2/`.
 - `submitter.ts` and `turnstile.ts` handle runtime submission and Turnstile siteverify. Turnstile applies only to definitions with `turnstileEnabled: true`; those schemas also require a `turnstile_token` property (spliced in by the generator), and the Worker needs the `TURNSTILE_SECRET_KEY` secret.
 - `scripts/gemini.ts` makes build-time Gemini calls for field metadata and is never imported by the Worker.
-- `scripts/validate-forms.ts` runs `pattern-policy.ts` over every definition in `src/forms/registry.ts`; the generator refuses to write an undeployable definition, and `pnpm run deploy` runs this check before Wrangler.
+- `scripts/validate-forms.ts` runs `pattern-policy.ts` over every definition in `src/forms/registry.ts`, honoring each definition's `unevaluablePatternsAllowed`; the generator refuses to write an undeployable definition unless `--allow-unevaluable-patterns` is passed, and `pnpm run deploy` runs this check before Wrangler.
 
 ESM throughout: relative imports use `.js` extensions even in `.ts` files.
 

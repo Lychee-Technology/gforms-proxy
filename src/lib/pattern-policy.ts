@@ -54,10 +54,12 @@ export function findSchemaPatternIssues(
 }
 
 export const SAFE_SUBSET_HINT =
-  'The matcher supports standard regex syntax except Unicode property ' +
-  'classes (\\p{...}), inline flags ((?i)), POSIX classes ([[:alpha:]]), ' +
-  'named groups, lookarounds, and the \\A \\z \\Q...\\E \\x{...} escapes; a ' +
-  'pattern whose repetition expands past the program budget is refused too. ' +
+  'The matcher supports standard regex syntax, minus constructs it cannot ' +
+  'model faithfully: among them Unicode property classes (\\p{...}), inline ' +
+  'flags ((?i)), POSIX classes ([[:alpha:]]), named groups, lookarounds, and ' +
+  'escapes such as \\a \\A \\z \\Q...\\E \\x{...} \\101. Counted repetition is ' +
+  "capped at RE2's own maximum of 1000, and a pattern whose repetition " +
+  'expands past the program budget is refused too. ' +
   'Simplify the pattern on the Google Form, or pass ' +
   '--allow-unevaluable-patterns to onboard it with that field checked only ' +
   'by Google. See docs/adr/0005 and issue #21.';

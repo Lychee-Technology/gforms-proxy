@@ -4,9 +4,9 @@
  * Nothing in the Worker imports this. It exists so the NFA matcher can be
  * differentially tested against a battle-tested engine across the whole
  * supported subset — the property that replaced PR #20's syntactic safety
- * argument (ADR 0005). It lives beside the AST for the same reason
- * pattern-policy.ts lives in src/lib/: it depends on this module and belongs
- * next to it.
+ * argument (ADR 0005). It lives beside the AST because it renders that AST and
+ * has to track its shape, the same reason pattern-policy.ts lives in src/lib/:
+ * a module belongs next to what it depends on.
  *
  * Every code point is emitted as a \u{…} escape, which the u flag requires for
  * non-BMP values and which sidesteps every metacharacter-escaping question.
