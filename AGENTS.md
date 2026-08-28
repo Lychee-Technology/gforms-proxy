@@ -24,6 +24,8 @@ pnpm exec tsx scripts/gen-field-mapping.ts --url <viewform_url> [--gemini-key <k
 
 `--gemini-key` (or the `GEMINI_API_KEY` env var) enables Gemini-generated field keys and translations; without it, `buildFieldsMeta` falls back to mechanical `field_N` keys. `--turnstile` marks the form as Turnstile-protected. Regenerating a form whose existing JSON has `turnstileEnabled: true` without `--turnstile` aborts (the guard lives in `scripts/turnstile-guard.ts`); pass `--force` to strip protection intentionally.
 
+When the generated schema carries at least one `pattern`, the script prints a note to stderr saying how many fields carry regex validation and that Google, not this proxy, enforces those rules at submission time (ADR 0006). It is informational only: it never changes the exit status or blocks the write.
+
 ## Architecture
 
 A Cloudflare Worker (Hono app, entry `src/index.ts` per `wrangler.toml`) that fronts Google Forms. It does two things:
