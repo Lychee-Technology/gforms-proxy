@@ -97,14 +97,23 @@ app.post('/api/v1/forms/:formId/responses', async (c) => {
     await submitToGoogleForms(definition.submissionUrl, definition.fieldMap, body);
   } catch (err) {
     if (err instanceof SubmissionError) {
-      // Google validates the submission itself and answers 4xx when it
-      // rejects one — a regex rule this proxy no longer checks locally, a
-      // missing required answer, an over-length value (ADR 0006). That is the
-      // client's fault, not an upstream failure, so it must not surface as a
-      // 502. Google's body is a rendered HTML page, not a machine-readable
-      // error, so there is no field-level detail to pass on.
+      // A value this proxy itself refused to serialize never reached Google.
+      // Its message names the offending field, which is the whole point of it,
+      // so pass it through rather than guessing at Google's validation rules.
+      if (err.kind === 'invalid-value') {
+        return c.json({ error: err.message }, 400);
+      }
+
       const status = err.statusCode;
-      if (status !== undefined && status >= 400 && status < 500) {
+
+      // Google validates the submission itself and answers 400 when it rejects
+      // one — a regex rule this proxy no longer checks locally, a missing
+      // required answer, an over-length value (ADR 0006). 413 is the caller's
+      // payload by any reading. Both are the client's fault, not an upstream
+      // failure, so they must not surface as a 502. Google's body is a rendered
+      // HTML page, not a machine-readable error, so there is no field-level
+      // detail to pass on.
+      if (status === 400 || status === 413) {
         return c.json(
           {
             error:
@@ -114,6 +123,23 @@ app.post('/api/v1/forms/:formId/responses', async (c) => {
           400,
         );
       }
+
+      // Any other 4xx is about the form, not the payload: 403 restricted, 404
+      // deleted or unpublished, 410 gone, 429 rate limited. Telling the caller
+      // to check their values would send them after a fault that is not theirs,
+      // so this stays a 502 and names Google's status — it is not sensitive,
+      // and without it these cases are indistinguishable from the outside.
+      if (status !== undefined && status >= 400 && status < 500) {
+        return c.json(
+          {
+            error:
+              `Google Forms did not accept the request (upstream HTTP ${status}). ` +
+              'The form may be unavailable, restricted, or rate limited.',
+          },
+          502,
+        );
+      }
+
       return c.json({ error: 'Failed to submit to Google Forms' }, 502);
     }
     console.error('Unexpected submission error:', err);

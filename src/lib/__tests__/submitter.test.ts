@@ -94,6 +94,16 @@ describe('submitToGoogleForms — object value guard', () => {
       submitToGoogleForms(SUBMISSION_URL, FIELD_MAP, { email: { a: 1 } }),
     ).rejects.toThrow(/email/);
   });
+
+  test("marks the error 'invalid-value' with no status, so the route answers 400", async () => {
+    // Nothing was sent upstream, so there is no status to carry; the kind is
+    // what tells the route this is the client's value, not Google's answer.
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('', { status: 200 }));
+
+    await expect(
+      submitToGoogleForms(SUBMISSION_URL, FIELD_MAP, { email: { a: 1 } }),
+    ).rejects.toMatchObject({ kind: 'invalid-value', statusCode: undefined });
+  });
 });
 
 describe('submitToGoogleForms — HTTP behavior', () => {
@@ -128,7 +138,16 @@ describe('submitToGoogleForms — HTTP behavior', () => {
 
     await expect(
       submitToGoogleForms(SUBMISSION_URL, FIELD_MAP, { full_name: 'Alice' }),
-    ).rejects.toMatchObject({ statusCode: 400 });
+    ).rejects.toMatchObject({ statusCode: 400, kind: 'upstream' });
+  });
+
+  test("marks a non-validation 4xx 'upstream' so the route keeps it off the 400 path", async () => {
+    // A 404 is a deleted or unpublished form, not a bad value.
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('<html>', { status: 404 }));
+
+    await expect(
+      submitToGoogleForms(SUBMISSION_URL, FIELD_MAP, { full_name: 'Alice' }),
+    ).rejects.toMatchObject({ statusCode: 404, kind: 'upstream' });
   });
 
   test('throws SubmissionError on network error', async () => {
@@ -144,6 +163,6 @@ describe('submitToGoogleForms — HTTP behavior', () => {
 
     await expect(
       submitToGoogleForms(SUBMISSION_URL, FIELD_MAP, { full_name: 'Alice' }),
-    ).rejects.toMatchObject({ statusCode: undefined });
+    ).rejects.toMatchObject({ statusCode: undefined, kind: 'upstream' });
   });
 });

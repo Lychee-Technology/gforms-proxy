@@ -77,15 +77,25 @@ not-schema carries a `pattern`, the whole constraint is skipped. This holds
 however many other keys the not-schema carries, because a rejection would
 require the value to match all of them, including the one nobody evaluated.
 
-**A 4xx from `formResponse` maps to a 400, not a 502.** Rejection by Google is
+**A 400 from `formResponse` maps to a 400, not a 502.** Rejection by Google is
 now the normal path for a violated regex rule, so it must not surface as
 "Failed to submit to Google Forms" with a 502. `submitter.ts` already carries
-the upstream status on `SubmissionError`; the route maps 4xx to a 400 naming
-the form's validation rules as the cause, and keeps 502 for 5xx and network
-failures. Google's rejection body is a 168 KB rendered HTML page, not a
-machine-readable error, so no field-level detail is extracted from it — parsing
-that page would be fragile in exactly the way the rest of the parser already
-is, for a message the client can get from the schema.
+the upstream status on `SubmissionError`; the route maps 400 — and 413, which
+is the caller's payload by any reading — to a 400 naming the form's validation
+rules as the cause. Google's rejection body is a 168 KB rendered HTML page, not
+a machine-readable error, so no field-level detail is extracted from it —
+parsing that page would be fragile in exactly the way the rest of the parser
+already is, for a message the client can get from the schema.
+
+The rest of the 4xx range is not attributable to the payload: 403 is a
+restricted form, 404 a deleted or unpublished one, 410 gone, 429 rate limited.
+Answering those with the validation wording would send the caller after a fault
+that is not theirs, so they stay 502 and name Google's status in the message —
+it is not sensitive, and without it these cases are indistinguishable from the
+outside. 5xx and network failures are unchanged. Separately, a value this proxy
+itself refuses to serialize never reaches Google at all; that error is tagged
+`kind: 'invalid-value'` and answered with a 400 carrying its own message, which
+names the offending field.
 
 `schema.ts` is unchanged and still emits `pattern`. `GET/POST /schema` is a
 description of the form's real validation rules for API consumers, and those

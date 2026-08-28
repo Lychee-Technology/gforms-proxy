@@ -57,11 +57,32 @@ const DRIFTED_TURNSTILE_DEFINITION: FormDefinition = {
   turnstileEnabled: true,
 };
 
+// ADVERSARIAL FIXTURE — a mapped field with no declared type, so the validator
+// lets an object value through to the submitter. scripts/field-support.ts
+// rejects the field types that produce object values before a real definition
+// is ever written, so this drift is the only way to exercise the submitter's
+// own object-value guard through the route. Never copy this shape.
+const UNTYPED_FIELD_DEFINITION: FormDefinition = {
+  formId: 'untypedFieldForm',
+  submissionUrl: 'https://docs.google.com/forms/d/e/untypedFieldForm/formResponse',
+  schema: {
+    $schema: 'https://json-schema.org/draft/2020-12/schema',
+    type: 'object',
+    additionalProperties: false,
+    required: ['grid_answer'],
+    properties: {
+      grid_answer: {},
+    },
+  },
+  fieldMap: { grid_answer: 'entry.333' },
+};
+
 vi.mock('../../forms/registry.js', () => ({
   default: new Map([
     ['testForm123', MOCK_DEFINITION],
     ['turnstileForm', MOCK_TURNSTILE_DEFINITION],
     ['driftedTurnstileForm', DRIFTED_TURNSTILE_DEFINITION],
+    ['untypedFieldForm', UNTYPED_FIELD_DEFINITION],
   ]),
 }));
 
@@ -153,6 +174,66 @@ describe('POST /api/v1/forms/:formId/responses', () => {
     const json = await res.json() as { error: string };
     expect(json.error).toContain('Google Forms rejected the submission');
     expect(json.error).toContain('validation rules');
+  });
+
+  test('returns 400 when Google Forms answers 413 for an over-large payload', async () => {
+    // Payload-too-large is the caller's data by any reading, so it shares the
+    // 400 path with a validation rejection.
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('<html>', { status: 413 }));
+    const res = await app.request('/api/v1/forms/testForm123/responses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Alice' }),
+    });
+    expect(res.status).toBe(400);
+    const json = await res.json() as { error: string };
+    expect(json.error).toContain('Google Forms rejected the submission');
+  });
+
+  test('returns 502 naming the status when the form is gone (404)', async () => {
+    // A deleted or unpublished form is not the caller's data; telling them to
+    // check their values would send them after a fault that is not theirs.
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('<html>', { status: 404 }));
+    const res = await app.request('/api/v1/forms/testForm123/responses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Alice' }),
+    });
+    expect(res.status).toBe(502);
+    const json = await res.json() as { error: string };
+    expect(json.error).toContain('404');
+    expect(json.error).not.toContain('validation rules');
+    expect(json.error).not.toContain('rejected the submission');
+  });
+
+  test('returns 502 naming the status when Google rate limits (429)', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('<html>', { status: 429 }));
+    const res = await app.request('/api/v1/forms/testForm123/responses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Alice' }),
+    });
+    expect(res.status).toBe(502);
+    const json = await res.json() as { error: string };
+    expect(json.error).toContain('429');
+    expect(json.error).not.toContain('validation rules');
+  });
+
+  test('returns 400 naming the field when a value is an object, without calling Google', async () => {
+    // Locally detected bad value: never sent upstream, so it must read as the
+    // client's fault and keep the message that names the offending field.
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    const res = await app.request('/api/v1/forms/untypedFieldForm/responses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ grid_answer: { 'Row 1': 'Option A' } }),
+    });
+    expect(res.status).toBe(400);
+    const json = await res.json() as { error: string };
+    expect(json.error).toContain('grid_answer');
+    expect(json.error).toContain('object value');
+    expect(json.error).not.toContain('validation rules');
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });
 
