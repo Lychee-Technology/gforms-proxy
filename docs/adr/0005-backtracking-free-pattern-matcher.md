@@ -37,9 +37,10 @@ in O(n·m·R) with no backtracking, where n is the input length in code points,
 m the instruction count, and R the number of ranges in a single `char`
 instruction's character class (`[a-c0-9]` has two). R is a real factor, not a
 constant: the matcher tests membership with a linear scan over the class's
-ranges, and nothing caps how many a class may carry. Sorting and merging the
-ranges at parse time and binary-searching them would make that factor `log R`;
-it is tracked separately (#30).
+ranges. It is bounded rather than eliminated — see "Bounding the product"
+below. Sorting and merging the ranges at parse time and binary-searching them
+would make that factor `log R`; that is a performance improvement on an already
+bounded quantity, and it is tracked separately (#30).
 
 Execution safety stops being a property of the pattern. Alternation, multiple
 quantifiers, quantified groups and nested quantifiers are all accepted. What
@@ -85,15 +86,48 @@ limit, bounds visits as well as output: `a{1000}a{1000}a{1000}a{996}` compiles
 to 3997 instructions, while `(?:(?:(?:(?:){1000}){1000}){1000}){1000}` is
 refused at once. Both limiters report the same "pattern too large".
 
-Matching is linear in the input, which the schema's `maxLength` now bounds:
-like `maxItems`, it is terminal for its property, so an oversized string never
-reaches the pattern check. A request body size limit would bound the remaining
-case where a schema carries no `maxLength`; it is tracked separately (#29).
-Until #29 lands, no form carrying a `pattern` should be onboarded. The two
-facts are only safe together: a 4000-instruction program run over a class of
-many ranges against an unbounded body is minutes of CPU, and a schema without
-`maxLength` leaves the input axis open. Neither the instruction budget nor the
-work counter constrains n or R.
+### Bounding the product
+
+`O(n·m·R)` with no cliff is a claim about shape. Making it a claim about
+magnitude takes a bound on each of the three factors, and the instruction
+budget only supplies one of them.
+
+m is bounded by `MAX_PROGRAM_SIZE` (4000), above.
+
+R is bounded by a third compile-time limiter, `MAX_TOTAL_CLASS_RANGES`, also
+4000. It counts the ranges of every `char` instruction the program emits, not
+the largest single class: the simulation's work at one input position is the
+ranges reachable across all active instructions, so the program's total is the
+quantity that actually caps the per-character cost. An overrun is refused as
+"pattern too large" like the other two, deliberately introducing no new refusal
+reason. Real patterns are nowhere near it — `\w` contributes 4 ranges, `\s` 3,
+`\d` 1, and a hand-written class usually fewer than 10 — so the limiter cannot
+bite a form an operator would onboard; `\w{1000}` sits exactly on it.
+
+n is bounded at the matcher's call site. A schema's `maxLength` already bounds
+it where one exists: like `maxItems`, it is terminal for its property, so an
+oversized string never reaches the pattern check. For a schema without one,
+`validator.ts` caps the input at 10,000 code points — code points, not UTF-16
+units, matching how the matcher measures its input — and skips the pattern
+check for anything longer, logging once per pattern rather than once per
+request so an attacker cannot flood the log with oversized bodies. The cap
+lives in the validator, not in `match.ts`: `Matcher.test` returns a boolean and
+must not acquire a third "don't know" state. Skipping is the trade the module
+already makes for unsupported syntax — local validation is a UX affordance and
+Google remains the authority (ADR 0002) — and it extends to `not` for the same
+reason an uncompilable pattern does: skipping the forward check while letting
+the `not` branch run would invert an unevaluable constraint into rejecting a
+valid submission.
+
+The worst case is therefore a bounded product, and it was measured rather than
+estimated. `[^b]{1000}[^b]{1000}[^b]{1000}[^b]{995}` — 3996 instructions and
+3995 ranges, near both compile-time budgets, with every thread kept alive by an
+input of 10,000 `a`s, so the simulation carries the maximum thread set at every
+position — takes about 150 ms, and at most 200 ms across runs, on a developer
+laptop under Node 22. Saturating R instead of m is cheaper: `\w{1000}` (4000
+ranges) over the same input takes about 14 ms. Hundreds of milliseconds is a
+real cost for one field and is worth watching, but it is a bound, it holds for
+every pattern the parser accepts, and no pattern can exceed it.
 
 `gen-field-mapping --allow-unevaluable-patterns` turns the generator's failure
 into a warning and records `unevaluablePatternsAllowed: true` in the definition,
@@ -104,22 +138,31 @@ never make a form permanently un-onboardable.
 ## Consequences
 
 - Pattern matching is linear in input length for every accepted pattern, with
-  no shape-dependent cliff. The exponential blowup is gone unconditionally: no
-  pattern the parser accepts can cost more than n·m·R, whatever its shape, and
-  that holds today with nothing else in place. What is not yet bounded is that
-  product's size. m is capped at 4000 and R and n are not, so a deployable
-  pattern can still cost minutes of CPU on a large body — worse than before this
-  branch, since m could not previously reach 4000 and the work now runs in
-  JavaScript rather than inside V8's engine. Two follow-ups close the two open
-  axes: #29 bounds the request body (n), and #30 replaces the class-range
-  linear scan with a binary search (R). Until they land it is bounded by
-  construction only in shape, not in magnitude.
+  no shape-dependent cliff, and the cost is now bounded in magnitude as well as
+  in shape. The exponential blowup is gone unconditionally: no pattern the
+  parser accepts can cost more than n·m·R, whatever its shape, and all three
+  factors are capped — n at 10,000 code points by the validator, m at 4000 by
+  the program budget, R at 4000 total ranges by the range budget. The measured
+  worst case is roughly 150 ms of CPU for one field, so "bounded by
+  construction" is literally true rather than a statement about shape. The two
+  follow-ups are re-scoped accordingly. #29, a request body size limit, still
+  matters, but for the request's other linear scans — `JSON.parse` and
+  `uniqueItems` hashing — not for the matcher, which no longer depends on it.
+  #30, sorting the ranges at parse time and binary-searching them, becomes a
+  performance optimisation that turns R into log R inside an already bounded
+  budget, not a safety fix.
+- The price of bounding n is one more fail-open case. A value over 10,000 code
+  points has its pattern check skipped, so a schema with no `maxLength` accepts
+  such a value locally and leaves it for Google to reject. That is the same
+  trade ADR 0002 makes for unsupported syntax, and it is preferable to spending
+  unbounded CPU on an attacker-chosen length.
 - The subset a form author must respect is explainable in one sentence:
   standard regex syntax, minus the constructs the Decision above lists — chiefly
   Unicode property classes, inline flags, POSIX classes, lookarounds, named
   groups, negated class escapes inside a character class, and a handful of RE2
   escapes — with counted repetition capped at RE2's own maximum of 1000 and,
-  beyond that, by the program budget and the compiler's work counter.
+  beyond that, by the program budget, the compiler's work counter and the
+  class-range budget.
   `SAFE_SUBSET_HINT` in `pattern-policy.ts` puts this summary, not the
   Decision's fuller enumeration, in front of whoever runs the generator; both
   are maintained by hand against the parser.
