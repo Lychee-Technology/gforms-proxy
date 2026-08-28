@@ -49,7 +49,11 @@ const SPACE: CharRange[] = [
   { lo: 0x20, hi: 0x20 },
 ];
 
-const CLASS_ESCAPES: Record<string, { ranges: CharRange[]; negated: boolean }> = {
+// The range arrays are readonly because DIGIT/WORD/SPACE are shared module
+// constants handed straight to callers; a mutable alias would let one parse
+// corrupt \d, \w or \s for the life of the isolate. The type is the guard —
+// nothing copies at runtime.
+const CLASS_ESCAPES: Record<string, { ranges: readonly CharRange[]; negated: boolean }> = {
   d: { ranges: DIGIT, negated: false },
   D: { ranges: DIGIT, negated: true },
   w: { ranges: WORD, negated: false },
@@ -235,8 +239,10 @@ class Parser {
       negated = true;
       this.i++;
     }
-    // RE2 has no empty class, and a leading ':' is the POSIX form; both parse
-    // differently across engines, so both are refused outright.
+    // A leading ']' and a leading ':' are both refused (ADR 0005). RE2 reads
+    // ']' here as a literal member, so it accepts []a], [^]a] and []-a] where
+    // we do not; escaping it, [\]a], compiles. A leading ':' is the POSIX
+    // form's prefix. Both parse differently across engines, so both go.
     if (this.peek() === CP.rbracket || this.peek() === CP.colon) return null;
 
     const ranges: CharRange[] = [];
@@ -273,7 +279,7 @@ class Parser {
 
   private parseClassItem():
     | { kind: 'char'; codePoint: number }
-    | { kind: 'ranges'; ranges: CharRange[] }
+    | { kind: 'ranges'; ranges: readonly CharRange[] }
     | null {
     const cp = this.peek();
     if (cp === undefined) return null;
@@ -333,15 +339,14 @@ class Parser {
    * is not one. Returns null without consuming for a brace form outside RE2's
    * decimal grammar, which is literal text. A malformed or out-of-range bound
    * also returns null, but additionally sets the failed flag; parse() checks
-   * this flag to reject the entire pattern. This mechanism rescues two wrong-
-   * branch paths that would otherwise occur: the missing-operand guard in
-   * parseAtom (which restores and returns null), and the double-repeat guard
-   * in applyQuantifier (which likewise returns null). Both return null correctly
-   * when an out-of-range bound returns null, and the failed flag is the only
-   * difference between "not a quantifier" (which is fine) and "quantifier error"
-   * (which is not). This ensures that out-of-range bounds (e.g., a{1001}) fail
-   * the whole parse, while invalid brace syntax (e.g., a{,2}) leaves the { to
-   * be treated as a literal character.
+   * this flag to reject the entire pattern. The flag is load-bearing because
+   * two callers cannot tell the two null returns apart, and both take the
+   * wrong branch on a failed bound: parseAtom's missing-operand guard falls
+   * through to a literal '{' char node, and applyQuantifier's double-repeat
+   * guard falls through to a repeat node. Neither returns null; the flag is
+   * what rejects the pattern anyway. So an out-of-range bound (a{1001}) fails
+   * the whole parse, while brace syntax outside the grammar (a{,2}) leaves the
+   * '{' to be treated as a literal character.
    */
   private readQuantifier(): Quantifier | null {
     const cp = this.peek();

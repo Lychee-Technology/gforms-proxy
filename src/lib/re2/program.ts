@@ -25,6 +25,18 @@ export type Inst =
  */
 export const MAX_PROGRAM_SIZE = 4000;
 
+/**
+ * A second, independent limiter. Compiler work is not the same quantity as
+ * emitted instructions: an empty repetition body such as `(?:){1000}` emits
+ * nothing yet still costs a node visit per iteration, so without this counter a
+ * nested stack of them compiles forever while never touching MAX_PROGRAM_SIZE.
+ * The multiplier keeps the whole documented instruction budget reachable (a
+ * pattern emitting 4000 instructions costs somewhat more than 4000 visits)
+ * while staying many orders of magnitude below the 10^6..10^12 iterations such
+ * a nested empty-body attack needs.
+ */
+const MAX_COMPILE_WORK = 4 * MAX_PROGRAM_SIZE;
+
 class BudgetExceeded extends Error {}
 
 class Compiler {
@@ -39,7 +51,7 @@ class Compiler {
 
   private checkWork(): void {
     this.work++;
-    if (this.work > MAX_PROGRAM_SIZE) throw new BudgetExceeded();
+    if (this.work > MAX_COMPILE_WORK) throw new BudgetExceeded();
   }
 
   private patch(at: number, field: 'x' | 'y', target: number): void {

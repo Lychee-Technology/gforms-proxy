@@ -1,7 +1,11 @@
 /**
  * Thompson NFA simulation: a set of active instruction pointers advances one
- * input code point at a time, so matching is O(n·m) with no backtracking and
- * no shape-dependent cliff (ADR 0005).
+ * input code point at a time, so matching is O(n·m·R) with no backtracking and
+ * no shape-dependent cliff (ADR 0005). n is the input length in code points, m
+ * the instruction count, and R the number of ranges in a single `char`
+ * instruction's class, which `inRanges` scans linearly. MAX_PROGRAM_SIZE bounds
+ * m; nothing bounds R or n, so the product is bounded in shape but not yet in
+ * magnitude (#29).
  *
  * There are no captures and no leftmost-longest bookkeeping. A JSON Schema
  * `pattern` asks only whether a match exists, which also makes greedy and lazy

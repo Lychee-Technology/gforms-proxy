@@ -6,7 +6,10 @@ import { toJsSource, JS_REGEX_FLAGS } from '../re2/to-js-source.js';
 
 /**
  * A deterministic xorshift32 PRNG keeps failures reproducible, with a much
- * longer period than the original LCG (2^32-1 vs 15,276).
+ * longer period than the original LCG (15,276). This uses a signed `>>` where
+ * canonical xorshift32 uses `>>>`, so it is not the textbook generator and its
+ * exact period is unproven; sampling 3,000,000 outputs from this seed found no
+ * repeat, which is all the fuzz needs.
  */
 const rng = (seed: number) => () => {
   seed ^= seed << 13;
@@ -82,10 +85,13 @@ describe('differential — the matcher agrees with native RegExp over the subset
       }
     }
     // Guards against the generator degenerating into all-rejected patterns.
-    // Measured baseline: 4830 pairs. Floor set to ~90% to catch regressions.
+    // Measured baseline: 4815 pairs, from 918 distinct patterns with 37
+    // rejected by the parser. Floor set to ~90% to catch regressions.
     expect(checked).toBeGreaterThan(4300);
-    // Verify {n,} quantifier renderer branch is exercised by fuzz.
-    // Other branches (\B, empty alt) are verified by table-driven tests.
+    // Verify {n,} quantifier renderer branch is exercised by fuzz. The \B and
+    // empty-alt branches are fuzzed too, not merely table-pinned: both are
+    // generated here (\B from ATOMS, empty alt from the `(?:X|)` branch), and
+    // a renderer mutant emitting \b for \B fails 175 of these pairs.
     expect(hasInfiniteQuantifier).toBe(true);
   });
 
@@ -98,7 +104,10 @@ describe('differential — the matcher agrees with native RegExp over the subset
     ['^a{0,2}b$', ['b', 'ab', 'aab', 'aaab']],
     ['\\Bcat\\B', ['a cat b', 'concatenate', 'cat', 'scatter']],
     ['^(?:a|)b$', ['b', 'ab', 'aab', '']],
-    ['a{2,}', ['a', 'aa', 'aaa', 'b']],
+    // Anchored so the row discriminates: unanchored, test() makes a{2,} and
+    // a{2} agree on every one of these inputs, and the row would survive the
+    // {min,}->{min} renderer mutant it exists to catch. 'aaa' separates them.
+    ['^a{2,}$', ['a', 'aa', 'aaa', 'b']],
   ])('%s agrees on its inputs', (pattern, inputs) => {
     const ast = parse(pattern);
     expect(ast).not.toBeNull();

@@ -33,7 +33,11 @@ structured 400; Google remains the authority.
 Execute patterns on a Thompson NFA simulation we own (`src/lib/re2/`) instead
 of on `RegExp`. A recursive-descent parser produces an AST, a compiler expands
 it into a flat instruction program, and a simulation without captures runs it
-in O(n·m) with no backtracking.
+in O(n·m·R) with no backtracking, where n is the input length in code points,
+m the instruction count, and R the number of ranges in a single `char`
+instruction's character class (`[a-c0-9]` has two). R is a real factor, not a
+constant: the matcher tests membership with a linear scan over the class's
+ranges, and nothing caps how many a class may carry.
 
 Execution safety stops being a property of the pattern. Alternation, multiple
 quantifiers, quantified groups and nested quantifiers are all accepted. What
@@ -70,10 +74,24 @@ contain one, and honoring it keeps us in agreement with Google. A total budget
 of 4000 instructions caps the compiled program, so `a{1000}` compiles while
 `(?:a{1000}){1000}` is refused as "pattern too large".
 
+A second limiter sits beside that budget, because compiler work and emitted
+instructions are not the same quantity. An empty repetition body such as
+`(?:){1000}` emits no instructions yet still costs a node visit per iteration,
+so a nested stack of them would compile forever without ever reaching
+`MAX_PROGRAM_SIZE`. A work counter, budgeted at four times the instruction
+limit, bounds visits as well as output: `a{1000}a{1000}a{1000}a{996}` compiles
+to 3997 instructions, while `(?:(?:(?:(?:){1000}){1000}){1000}){1000}` is
+refused at once. Both limiters report the same "pattern too large".
+
 Matching is linear in the input, which the schema's `maxLength` now bounds:
 like `maxItems`, it is terminal for its property, so an oversized string never
 reaches the pattern check. A request body size limit would bound the remaining
 case where a schema carries no `maxLength`; it is tracked separately (#29).
+Until #29 lands, no form carrying a `pattern` should be onboarded. The two
+facts are only safe together: a 4000-instruction program run over a class of
+many ranges against an unbounded body is minutes of CPU, and a schema without
+`maxLength` leaves the input axis open. Neither the instruction budget nor the
+work counter constrains n or R.
 
 `gen-field-mapping --allow-unevaluable-patterns` turns the generator's failure
 into a warning and records `unevaluablePatternsAllowed: true` in the definition,
@@ -84,16 +102,24 @@ never make a form permanently un-onboardable.
 ## Consequences
 
 - Pattern matching is linear in input length for every accepted pattern, with
-  no shape-dependent cliff. Exposure to a mis-authored regex is bounded by
-  construction rather than by a syntactic guess.
+  no shape-dependent cliff. The exponential blowup is gone unconditionally: no
+  pattern the parser accepts can cost more than n·m·R, whatever its shape, and
+  that holds today with nothing else in place. What is not yet bounded is that
+  product's size. m is capped at 4000 and R and n are not, so a deployable
+  pattern can still cost minutes of CPU on a large body — worse than before this
+  branch, since m could not previously reach 4000 and the work now runs in
+  JavaScript rather than inside V8's engine. The remaining exposure closes when
+  #29 bounds the request body; until then it is bounded by construction only in
+  shape, not in magnitude.
 - The subset a form author must respect is explainable in one sentence:
   standard regex syntax, minus the constructs the Decision above lists — chiefly
   Unicode property classes, inline flags, POSIX classes, lookarounds, named
   groups, negated class escapes inside a character class, and a handful of RE2
   escapes — with counted repetition capped at RE2's own maximum of 1000 and,
-  beyond that, by the program budget. `SAFE_SUBSET_HINT` in `pattern-policy.ts`
-  puts this summary, not the Decision's fuller enumeration, in front of whoever
-  runs the generator; both are maintained by hand against the parser.
+  beyond that, by the program budget and the compiler's work counter.
+  `SAFE_SUBSET_HINT` in `pattern-policy.ts` puts this summary, not the
+  Decision's fuller enumeration, in front of whoever runs the generator; both
+  are maintained by hand against the parser.
 - We own a regex matcher. A bug in it produces a wrong 400, not a security
   failure. `src/lib/re2/to-js-source.ts` renders the same AST as JavaScript
   RegExp source purely so the matcher can be differentially fuzzed against the

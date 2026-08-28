@@ -124,11 +124,24 @@ describe('compile', () => {
   });
 
   test('deeply nested empty groups are bounded by work counter', () => {
+    // The bodies emit nothing, so MAX_PROGRAM_SIZE never trips; only the work
+    // counter stops this. Assert unconditionally and bound the wall clock —
+    // without the counter this compiles until vitest's timeout rather than
+    // failing an assertion.
+    const started = Date.now();
     const program = programFor('(?:(?:(?:(?:){1000}){1000}){1000}){1000}');
-    // Should return null (exceeds budget) or a tiny program (only match)
-    if (program !== null) {
-      expect(program.length).toBeLessThanOrEqual(10);
-    }
+    expect(program).toBeNull();
+    expect(Date.now() - started).toBeLessThan(200);
+  });
+
+  test('a pattern emitting nearly the full budget still compiles', () => {
+    // Guards the work counter's multiplier: budgeted at MAX_PROGRAM_SIZE
+    // rather than a multiple of it, this was refused as "pattern too large"
+    // despite emitting fewer than 4000 instructions.
+    const program = programFor('a{1000}a{1000}a{1000}a{996}') as unknown[];
+    expect(program).not.toBeNull();
+    expect(program.length).toBe(3997);
+    expect(program.length).toBeLessThanOrEqual(MAX_PROGRAM_SIZE);
   });
 
   test('the budget is 4000 instructions', () => {
