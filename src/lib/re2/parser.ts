@@ -135,11 +135,12 @@ class Parser {
       case CP.backslash:
         return this.parseEscape();
       case CP.lbracket:
+        return this.parseClass();
       case CP.star:
       case CP.plus:
       case CP.question:
       case CP.lbrace:
-        // Character classes arrive in Task 2, quantifiers in Task 3.
+        // Quantifiers arrive in Task 3.
         return null;
       default:
         if (isSurrogate(cp)) return null;
@@ -209,6 +210,92 @@ class Parser {
     if (!/^[0-9A-Fa-f]{2}$/.test(text)) return null;
     this.i += 4;
     return Number.parseInt(text, 16);
+  }
+
+  private parseClass(): Node | null {
+    this.i++;
+    let negated = false;
+    if (this.peek() === CP.caret) {
+      negated = true;
+      this.i++;
+    }
+    // RE2 has no empty class, and a leading ':' is the POSIX form; both parse
+    // differently across engines, so both are refused outright.
+    if (this.peek() === CP.rbracket || this.peek() === CP.colon) return null;
+
+    const ranges: CharRange[] = [];
+    while (this.i < this.cps.length && this.peek() !== CP.rbracket) {
+      // [[:alpha:]] — the inner POSIX class is not supported.
+      if (this.peek() === CP.lbracket && this.peek(1) === CP.colon) return null;
+
+      const item = this.parseClassItem();
+      if (item === null) return null;
+      if (item.kind === 'ranges') {
+        ranges.push(...item.ranges);
+        continue;
+      }
+      // A dash starts a range only between two single code points, and only
+      // when it is not the last character before ']'.
+      const dashStartsRange =
+        this.peek() === CP.dash &&
+        this.peek(1) !== undefined &&
+        this.peek(1) !== CP.rbracket;
+      if (dashStartsRange) {
+        this.i++;
+        const hi = this.parseClassItem();
+        if (hi === null || hi.kind !== 'char') return null;
+        if (hi.codePoint < item.codePoint) return null;
+        ranges.push({ lo: item.codePoint, hi: hi.codePoint });
+        continue;
+      }
+      ranges.push({ lo: item.codePoint, hi: item.codePoint });
+    }
+    if (this.peek() !== CP.rbracket) return null;
+    this.i++;
+    return { kind: 'class', negated, ranges };
+  }
+
+  private parseClassItem():
+    | { kind: 'char'; codePoint: number }
+    | { kind: 'ranges'; ranges: CharRange[] }
+    | null {
+    const cp = this.peek();
+    if (cp === undefined) return null;
+
+    if (cp !== CP.backslash) {
+      if (isSurrogate(cp)) return null;
+      this.i++;
+      return { kind: 'char', codePoint: cp };
+    }
+
+    const next = this.peek(1);
+    if (next === undefined) return null;
+    const ch = String.fromCodePoint(next);
+
+    const cls = CLASS_ESCAPES[ch];
+    if (cls) {
+      // A negated escape inside a class ([\S]) is set subtraction, which the
+      // range representation cannot express; refuse rather than approximate.
+      if (cls.negated) return null;
+      this.i += 2;
+      return { kind: 'ranges', ranges: cls.ranges };
+    }
+    const control = CONTROL_ESCAPES[ch];
+    if (control !== undefined) {
+      this.i += 2;
+      return { kind: 'char', codePoint: control };
+    }
+    if (ch === 'x') {
+      const hex = this.readHexPair();
+      if (hex === null) return null;
+      return { kind: 'char', codePoint: hex };
+    }
+    if (isAsciiPunct(next)) {
+      this.i += 2;
+      return { kind: 'char', codePoint: next };
+    }
+    // \b inside a class, \p, \A and friends.
+    return null;
   }
 }
 

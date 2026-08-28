@@ -150,3 +150,96 @@ describe('parse — group depth limit', () => {
     expect(result).toEqual({ kind: 'char', codePoint: 0x61 });
   });
 });
+
+describe('parse — character classes', () => {
+  test('a class becomes ranges', () => {
+    expect(parse('[a-z0]')).toEqual({
+      kind: 'class',
+      negated: false,
+      ranges: [
+        { lo: 0x61, hi: 0x7a },
+        { lo: 0x30, hi: 0x30 },
+      ],
+    });
+  });
+
+  test('a leading caret negates the class', () => {
+    expect(parse('[^0-9]')).toEqual({
+      kind: 'class',
+      negated: true,
+      ranges: [{ lo: 0x30, hi: 0x39 }],
+    });
+  });
+
+  test('a class escape expands to its ranges inside the class', () => {
+    expect(parse('[\\d,]')).toEqual({
+      kind: 'class',
+      negated: false,
+      ranges: [
+        { lo: 0x30, hi: 0x39 },
+        { lo: 0x2c, hi: 0x2c },
+      ],
+    });
+  });
+
+  test('a dash after a class escape is a literal, as in RE2', () => {
+    // RE2 reads [\s-a] as whitespace, '-', and 'a' — not as a range whose
+    // start is the trailing space of the expanded \s.
+    expect(parse('[\\s-a]')).toEqual({
+      kind: 'class',
+      negated: false,
+      ranges: [
+        { lo: 0x09, hi: 0x0a },
+        { lo: 0x0c, hi: 0x0d },
+        { lo: 0x20, hi: 0x20 },
+        { lo: 0x2d, hi: 0x2d },
+        { lo: 0x61, hi: 0x61 },
+      ],
+    });
+  });
+
+  test('a dash immediately before the closing bracket is a literal', () => {
+    expect(parse('[0-9-]')).toEqual({
+      kind: 'class',
+      negated: false,
+      ranges: [
+        { lo: 0x30, hi: 0x39 },
+        { lo: 0x2d, hi: 0x2d },
+      ],
+    });
+  });
+
+  test('a dash first in the class is a literal', () => {
+    expect(parse('[-a]')).toEqual({
+      kind: 'class',
+      negated: false,
+      ranges: [
+        { lo: 0x2d, hi: 0x2d },
+        { lo: 0x61, hi: 0x61 },
+      ],
+    });
+  });
+
+  test('a non-BMP literal inside a class is one code point', () => {
+    expect(parse('[\u{1F600}]')).toEqual({
+      kind: 'class',
+      negated: false,
+      ranges: [{ lo: 0x1f600, hi: 0x1f600 }],
+    });
+  });
+
+  test.each([
+    '[]',
+    '[^]',
+    '[:alpha:]',
+    '[[:alpha:]]',
+    '[\\S]',
+    '[\\b]',
+    '[z-a]',
+    '[a-\\d]',
+    '[a-z',
+    '[\\p{L}]',
+  ])('%s returns null', (pattern) => {
+    expect(parse(pattern)).toBeNull();
+  });
+});
