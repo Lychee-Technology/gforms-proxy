@@ -1,5 +1,3 @@
-import { toJavaScriptRegexSource, JS_REGEX_FLAGS } from './re2-compat.js';
-
 export interface ValidationError {
   field: string;
   message: string;
@@ -27,32 +25,12 @@ function checkType(value: unknown, type: string): boolean {
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const URI_RE = /^https?:\/\/.+/;
 
-// Google Forms patterns use RE2 syntax. Each pattern is translated into
-// JavaScript source with identical semantics (see re2-compat.ts); a pattern
-// outside the verified subset, or one that still fails to compile, is cached
-// as null and its check skipped — Google remains the final judge.
-const patternCache = new Map<string, RegExp | null>();
-
-function getPattern(pattern: string): RegExp | null {
-  let re = patternCache.get(pattern);
-  if (re === undefined) {
-    const source = toJavaScriptRegexSource(pattern);
-    if (source === null) {
-      console.warn(`Skipping pattern outside the JavaScript-compatible RE2 subset: ${pattern}`);
-      re = null;
-    } else {
-      try {
-        re = new RegExp(source, JS_REGEX_FLAGS);
-      } catch {
-        console.warn(`Skipping uncompilable pattern: ${pattern}`);
-        re = null;
-      }
-    }
-    patternCache.set(pattern, re);
-  }
-  return re;
-}
-
+// `pattern` is deliberately absent from this validator. Google Forms patterns
+// are RE2, and Google enforces them server-side: a submission that violates
+// only a regex rule comes back from `formResponse` as HTTP 400. Evaluating
+// them here duplicated an authoritative gate at a cost no Worker can pay
+// (ADR 0006). `schema.ts` still emits `pattern` so the published schema
+// describes the form's real rules — we stop enforcing it, not describing it.
 function validateProperty(
   field: string,
   value: unknown,
@@ -84,7 +62,11 @@ function validateProperty(
     }
     const maxLength = schema['maxLength'];
     if (typeof maxLength === 'number' && value.length > maxLength) {
+      // Terminal, like maxItems: returning skips the format check below and
+      // any allOf/anyOf. An oversized string is already invalid, so scanning
+      // it further is work proportional to an attacker-chosen length.
       errors.push({ field, message: `must be at most ${maxLength} character(s)` });
+      return;
     }
     const format = schema['format'];
     if (format === 'email' && !EMAIL_RE.test(value)) {
@@ -92,13 +74,6 @@ function validateProperty(
     }
     if (format === 'uri' && !URI_RE.test(value)) {
       errors.push({ field, message: 'must match format: uri' });
-    }
-    const pattern = schema['pattern'];
-    if (typeof pattern === 'string') {
-      const re = getPattern(pattern);
-      if (re && !re.test(value)) {
-        errors.push({ field, message: `must match pattern: ${pattern}` });
-      }
     }
   }
 
@@ -158,13 +133,15 @@ function validateProperty(
     for (const sub of allOf as Schema[]) {
       if (isObject(sub) && 'not' in sub) {
         const notSchema = sub['not'] as Schema;
-        // A skipped (uncompilable) pattern inside `not` would leave notErrors
-        // empty and invert into rejecting every value — skip the whole
-        // constraint instead. This holds however many keys the not-schema
-        // carries: rejecting requires the value to match every key including
-        // the unevaluable pattern, so a confident rejection is never possible.
-        const notPattern = isObject(notSchema) ? notSchema['pattern'] : undefined;
-        if (typeof notPattern === 'string' && getPattern(notPattern) === null) {
+        // `schema.ts` emits `{not: {pattern}}` for does_not_match and
+        // does_not_contain. Since `pattern` is no longer evaluated, the inner
+        // schema produces no errors for any value, and inverting that would
+        // reject every submission to a form carrying such a rule. Skip the
+        // whole constraint instead. This holds however many keys the
+        // not-schema carries: a rejection requires the value to match every
+        // key, including the pattern nobody evaluated, so a confident
+        // rejection is never possible. Google enforces the rule (ADR 0006).
+        if (isObject(notSchema) && typeof notSchema['pattern'] === 'string') {
           continue;
         }
         const notErrors: ValidationError[] = [];

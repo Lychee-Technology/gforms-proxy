@@ -1,7 +1,13 @@
+// Where the failure came from. 'upstream' is anything Google answered or a
+// network failure reaching it; 'invalid-value' is a value this proxy refused to
+// serialize before any request was made. The route maps the two differently.
+export type SubmissionErrorKind = 'upstream' | 'invalid-value';
+
 export class SubmissionError extends Error {
   constructor(
     message: string,
     public readonly statusCode?: number,
+    public readonly kind: SubmissionErrorKind = 'upstream',
   ) {
     super(message);
     this.name = 'SubmissionError';
@@ -14,6 +20,8 @@ function assertSerializable(key: string, value: unknown): void {
   if (typeof value === 'object' && value !== null) {
     throw new SubmissionError(
       `Field "${key}" has an object value, which cannot be submitted to Google Forms`,
+      undefined,
+      'invalid-value',
     );
   }
 }

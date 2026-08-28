@@ -319,23 +319,27 @@ describe('regular_expression validation anchoring', () => {
     expect(prop.allOf).toEqual([{ not: { pattern: '[a-z]+\\d' } }]);
   });
 
-  test('matches: a partial match fails validate() while a full match passes', () => {
+  // The anchoring above is what the published schema tells API consumers; it
+  // is no longer what validate() enforces. Patterns are checked by Google
+  // alone (ADR 0006), and a not-constraint carrying one must not invert into
+  // a rejection.
+  test('matches: validate() accepts both a partial and a full match', () => {
     const schema = buildJsonSchema({
       formTitle: 'T',
       formId: 'id',
       fields: [makeField({ type: 'regular_expression', operator: 'matches', values: ['[a-z]+\\d'] })],
     });
-    expect(validate({ field_1: 'abc1x' }, schema as Record<string, unknown>)).toHaveLength(1);
+    expect(validate({ field_1: 'abc1x' }, schema as Record<string, unknown>)).toEqual([]);
     expect(validate({ field_1: 'abc1' }, schema as Record<string, unknown>)).toEqual([]);
   });
 
-  test('does_not_match: only a full match fails validate(), a partial match passes', () => {
+  test('does_not_match: validate() accepts a full match instead of rejecting everything', () => {
     const schema = buildJsonSchema({
       formTitle: 'T',
       formId: 'id',
       fields: [makeField({ type: 'regular_expression', operator: 'does_not_match', values: ['[a-z]+\\d'] })],
     });
-    expect(validate({ field_1: 'abc1' }, schema as Record<string, unknown>)).toHaveLength(1);
+    expect(validate({ field_1: 'abc1' }, schema as Record<string, unknown>)).toEqual([]);
     expect(validate({ field_1: 'abc1x' }, schema as Record<string, unknown>)).toEqual([]);
   });
 });
@@ -354,19 +358,21 @@ describe('text contains validation', () => {
     return buildJsonSchema({ formTitle: 'T', formId: 'id', fields: [field] });
   };
 
-  test('contains emits only the escaped literal and validates by partial match', () => {
+  test('contains emits only the escaped literal, which validate() does not enforce', () => {
     const schema = build('contains');
     expect((schema.properties as any).field_1.pattern).toBe('a\\.b');
     expect(validate({ field_1: 'prefix a.b suffix' }, schema)).toEqual([]);
-    expect(validate({ field_1: 'prefix acb suffix' }, schema)).toHaveLength(1);
+    expect(validate({ field_1: 'prefix acb suffix' }, schema)).toEqual([]);
   });
 
-  test('does_not_contain inverts only the escaped literal partial match', () => {
+  test('does_not_contain emits the inverted literal, and validate() skips the not-constraint', () => {
     const schema = build('does_not_contain');
     expect((schema.properties as any).field_1.allOf).toEqual([
       { not: { pattern: 'a\\.b' } },
     ]);
-    expect(validate({ field_1: 'prefix a.b suffix' }, schema)).toHaveLength(1);
+    // Both values pass: the inner pattern is unevaluated, so inverting it
+    // would reject every submission to this form.
+    expect(validate({ field_1: 'prefix a.b suffix' }, schema)).toEqual([]);
     expect(validate({ field_1: 'prefix acb suffix' }, schema)).toEqual([]);
   });
 });

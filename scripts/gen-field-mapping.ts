@@ -10,7 +10,6 @@ import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { extractFormId, fetchAndParseForm, validateFormUrl } from '../src/lib/parser.js';
-import { assertDeployablePatterns } from '../src/lib/pattern-policy.js';
 import { buildJsonSchema, buildFieldMap } from '../src/lib/schema.js';
 import { assertSupportedFieldTypes } from './field-support.js';
 import { buildFieldsMetaWithGemini } from './gemini.js';
@@ -53,6 +52,26 @@ function parseArgs(argv: string[]): { url: string; geminiKey: string | null; tur
   return { url, geminiKey, turnstile, force };
 }
 
+// A pattern can sit directly on a property, inside an `allOf` member, or
+// inside a `{ not: { pattern } }` constraint, so a shallow look at the
+// property object undercounts.
+function carriesPattern(node: unknown): boolean {
+  if (Array.isArray(node)) return node.some(carriesPattern);
+  if (node === null || typeof node !== 'object') return false;
+  const obj = node as Record<string, unknown>;
+  if (typeof obj['pattern'] === 'string') return true;
+  return Object.values(obj).some(carriesPattern);
+}
+
+// Count properties that carry at least one pattern anywhere beneath them,
+// not raw pattern occurrences: the operator cares how many of their
+// questions are affected, not how many JSON keys matched.
+function countPatternProperties(schema: Record<string, unknown>): number {
+  const properties = schema['properties'];
+  if (properties === null || typeof properties !== 'object') return 0;
+  return Object.values(properties as Record<string, unknown>).filter(carriesPattern).length;
+}
+
 export async function main(argv: string[] = process.argv): Promise<void> {
   const { url, geminiKey, turnstile, force } = parseArgs(argv);
   const apiKey = geminiKey ?? process.env['GEMINI_API_KEY'] ?? null;
@@ -88,7 +107,6 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         required: [...((baseSchema.required as string[]) ?? []), 'turnstile_token'],
       }
     : baseSchema;
-  assertDeployablePatterns(rawData.formId, schema);
   const fieldMap = buildFieldMap(rawData.fields, metas);
   const submissionUrl = `https://docs.google.com/forms/d/e/${rawData.formId}/formResponse`;
 
@@ -102,6 +120,15 @@ export async function main(argv: string[] = process.argv): Promise<void> {
 
   writeFileSync(out, JSON.stringify(definition, null, 2) + '\n');
   console.error(`\nFormDefinition written to: ${out}`);
+
+  const patternFieldCount = countPatternProperties(schema);
+  if (patternFieldCount > 0) {
+    const subject = patternFieldCount === 1 ? '1 field carries' : `${patternFieldCount} fields carry`;
+    console.error(
+      `\nNote: ${subject} regex validation. Google enforces those rules when the response is submitted, not this proxy, so a violating value comes back as a 400 from the submission endpoint instead of being caught locally.`,
+    );
+  }
+
   console.error('\nNext steps:');
   console.error(`  1. Add to src/forms/registry.ts:`);
   console.error(`     import form from './${rawData.formId}.json' with { type: 'json' };`);
