@@ -5,38 +5,48 @@ import { matches } from '../re2/match.js';
 import { toJsSource, JS_REGEX_FLAGS } from '../re2/to-js-source.js';
 
 /**
- * A small deterministic PRNG keeps failures reproducible: a failing seed can be
- * pasted straight into a focused test.
+ * A deterministic xorshift32 PRNG keeps failures reproducible, with a much
+ * longer period than the original LCG (2^32-1 vs 15,276).
  */
 const rng = (seed: number) => () => {
-  seed = (seed * 1103515245 + 12345) & 0x7fffffff;
-  return seed / 0x7fffffff;
+  seed ^= seed << 13;
+  seed ^= seed >> 17;
+  seed ^= seed << 5;
+  return (seed >>> 0) / 0x100000000;
 };
 
-const ATOMS = ['a', 'b', 'c', '\\d', '\\w', '\\s', '.', '[ab]', '[^a]', '[a-c]'];
-const QUANTIFIERS = ['', '', '', '?', '*', '+', '{2}', '{1,2}', '{0,2}'];
+const ATOMS = ['a', 'b', 'c', '\\d', '\\w', '\\s', '.', '[ab]', '[^a]', '[a-c]', '^', '$', '\\b', '\\B'];
+const QUANTIFIERS = ['', '', '', '?', '*', '+', '{2}', '{1,2}', '{0,2}', '{2,}'];
 
 const buildPattern = (random: () => number, depth: number): string => {
   const pick = <T>(xs: T[]): T => xs[Math.floor(random() * xs.length)] as T;
-  const pieces: number = 1 + Math.floor(random() * 3);
+  const pieces: number = 1 + Math.floor(random() * 4);
   let out = '';
   for (let k = 0; k < pieces; k++) {
     let unit: string;
     const roll = random();
     if (depth > 0 && roll < 0.25) {
-      unit = `(?:${buildPattern(random, depth - 1)}|${buildPattern(random, depth - 1)})`;
+      // Include an empty branch in alternation to test empty patterns (40% of the time).
+      const emptyBranch = random() < 0.4;
+      if (emptyBranch) {
+        unit = `(?:${buildPattern(random, depth - 1)}|)`;
+      } else {
+        unit = `(?:${buildPattern(random, depth - 1)}|${buildPattern(random, depth - 1)})`;
+      }
     } else if (depth > 0 && roll < 0.4) {
       unit = `(?:${buildPattern(random, depth - 1)})`;
     } else {
       unit = pick(ATOMS);
     }
-    out += unit + pick(QUANTIFIERS);
+    // Assertions cannot be quantified, so emit them without quantifiers.
+    const isAssertion = unit === '^' || unit === '$' || unit === '\\b' || unit === '\\B';
+    out += unit + (isAssertion ? '' : pick(QUANTIFIERS));
   }
   return out;
 };
 
 const buildInput = (random: () => number): string => {
-  const alphabet = 'abc019 \t.';
+  const alphabet = 'abc019 \t.\n';
   const length = Math.floor(random() * 12);
   let out = '';
   for (let k = 0; k < length; k++) {
@@ -52,6 +62,7 @@ describe('differential — the matcher agrees with native RegExp over the subset
   test('1000 random pattern/input pairs agree', () => {
     const random = rng(20260827);
     let checked = 0;
+    let hasInfiniteQuantifier = false;
     for (let k = 0; k < 1000; k++) {
       const pattern = buildPattern(random, 2);
       const ast = parse(pattern);
@@ -59,6 +70,7 @@ describe('differential — the matcher agrees with native RegExp over the subset
       const program = compile(ast);
       if (program === null) continue;
       const source = toJsSource(ast);
+      hasInfiniteQuantifier = hasInfiniteQuantifier || (source.includes('{') && source.includes(',}'));
       const native = new RegExp(source, JS_REGEX_FLAGS);
       for (let j = 0; j < 5; j++) {
         const input = buildInput(random);
@@ -70,7 +82,11 @@ describe('differential — the matcher agrees with native RegExp over the subset
       }
     }
     // Guards against the generator degenerating into all-rejected patterns.
-    expect(checked).toBeGreaterThan(2000);
+    // Measured baseline: 4830 pairs. Floor set to ~90% to catch regressions.
+    expect(checked).toBeGreaterThan(4300);
+    // Verify {n,} quantifier renderer branch is exercised by fuzz.
+    // Other branches (\B, empty alt) are verified by table-driven tests.
+    expect(hasInfiniteQuantifier).toBe(true);
   });
 
   test.each([
@@ -80,6 +96,9 @@ describe('differential — the matcher agrees with native RegExp over the subset
     ['\\bcat\\b', ['a cat', 'concatenate', 'cat']],
     ['^[\\s-a]+$', ['-a ', 'b', '\t-']],
     ['^a{0,2}b$', ['b', 'ab', 'aab', 'aaab']],
+    ['\\Bcat\\B', ['a cat b', 'concatenate', 'cat', 'scatter']],
+    ['^(?:a|)b$', ['b', 'ab', 'aab', '']],
+    ['a{2,}', ['a', 'aa', 'aaa', 'b']],
   ])('%s agrees on its inputs', (pattern, inputs) => {
     const ast = parse(pattern);
     expect(ast).not.toBeNull();
