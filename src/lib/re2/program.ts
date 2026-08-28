@@ -3,6 +3,11 @@
  * simulation in match.ts. Counted repetition expands by copying, so the
  * program size — not the pattern's syntactic shape — is what bounds the work.
  * A program over MAX_PROGRAM_SIZE is refused (ADR 0005).
+ *
+ * Note: The generated program may contain epsilon edges (transitions without
+ * consuming input) that form cycles, e.g., from `(?:){1,}` or `(?:a*)*`. The
+ * Thompson NFA simulator must maintain a per-position visited set to avoid
+ * infinite loops through epsilon paths.
  */
 import type { Assertion, CharRange, Node } from './ast.js';
 
@@ -24,11 +29,17 @@ class BudgetExceeded extends Error {}
 
 class Compiler {
   private readonly prog: Inst[] = [];
+  private work = 0;
 
   private emit(inst: Inst): number {
     if (this.prog.length >= MAX_PROGRAM_SIZE) throw new BudgetExceeded();
     this.prog.push(inst);
     return this.prog.length - 1;
+  }
+
+  private checkWork(): void {
+    this.work++;
+    if (this.work > MAX_PROGRAM_SIZE) throw new BudgetExceeded();
   }
 
   private patch(at: number, field: 'x' | 'y', target: number): void {
@@ -42,6 +53,8 @@ class Compiler {
   }
 
   private node(node: Node): void {
+    this.checkWork();
+
     switch (node.kind) {
       case 'empty':
         return;
@@ -67,6 +80,11 @@ class Compiler {
       case 'repeat':
         this.repeat(node.node, node.min, node.max);
         return;
+      default: {
+        const _exhaustive: never = node;
+        void _exhaustive;
+        return;
+      }
     }
   }
 
