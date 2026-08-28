@@ -5,11 +5,14 @@
  * the instruction count, and R the number of ranges in a single `char`
  * instruction's class, which `inRanges` scans linearly. All three are bounded:
  * MAX_PROGRAM_SIZE bounds m, MAX_TOTAL_CLASS_RANGES bounds the ranges the whole
- * program can carry and so the R reachable at one position, and the caller caps
- * n — `validator.ts` skips the check for a value over its code-point limit
- * rather than handing it here, because `test` returns a boolean and must not
- * acquire a third "don't know" state. The product is therefore bounded in
- * magnitude, not only in shape.
+ * program can carry and so the R reachable at one position, and the caller
+ * bounds n — `validator.ts` spends a per-request budget of code points and
+ * skips any check that does not fit what is left, rather than handing the value
+ * here, because `test` returns a boolean and must not acquire a third "don't
+ * know" state. The product is therefore bounded in magnitude, not only in
+ * shape, and bounded per request rather than only per value. m dominates in
+ * practice: the measured worst case saturates the instruction budget while
+ * using half the range budget (ADR 0005).
  *
  * There are no captures and no leftmost-longest bookkeeping. A JSON Schema
  * `pattern` asks only whether a match exists, which also makes greedy and lazy

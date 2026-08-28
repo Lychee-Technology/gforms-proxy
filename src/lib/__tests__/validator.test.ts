@@ -1,5 +1,5 @@
 import { describe, test, expect, vi, afterEach } from 'vitest';
-import { validate } from '../validator.js';
+import { validate, MAX_PATTERN_CODE_POINTS_PER_REQUEST as BUDGET } from '../validator.js';
 import { compilePattern } from '../re2/index.js';
 
 describe('validate — required fields', () => {
@@ -699,38 +699,38 @@ describe('validator — pattern keyword', () => {
 });
 
 /**
- * The input-length cap. `maxLength` bounds n where a schema carries one; these
- * cover the schema that does not. Each test uses a distinct pattern because the
- * warn-once bookkeeping is module-level and lives for the process.
+ * The per-request pattern-matching budget. `maxLength` bounds a single value's
+ * length where a schema carries one; the budget bounds the sum over the whole
+ * request, which is what one body full of pattern-bearing fields can otherwise
+ * multiply. Each test uses a distinct pattern because the warn-once bookkeeping
+ * is module-level and lives for the process.
  */
-describe('validate — pattern input over the length cap', () => {
-  const CAP = 10_000;
-
+describe('validate — the per-request pattern budget', () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  test('a value over the cap skips the pattern check', () => {
+  test('a single value over the whole budget skips its pattern check', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const schema = {
       type: 'object',
       properties: { code: { type: 'string', pattern: '^cap1-[a-z]+$' } },
     };
-    expect(validate({ code: 'x'.repeat(CAP + 1) }, schema)).toEqual([]);
+    expect(validate({ code: 'x'.repeat(BUDGET + 1) }, schema)).toEqual([]);
   });
 
-  test('a value at the cap is still enforced', () => {
+  test('a value exactly at the budget is still enforced', () => {
     const schema = {
       type: 'object',
       properties: { code: { type: 'string', pattern: '^cap2-[a-z]+$' } },
     };
-    expect(validate({ code: 'x'.repeat(CAP) }, schema)).toHaveLength(1);
-    expect(validate({ code: `cap2-${'x'.repeat(CAP - 5)}` }, schema)).toEqual([]);
+    expect(validate({ code: 'x'.repeat(BUDGET) }, schema)).toHaveLength(1);
+    expect(validate({ code: `cap2-${'x'.repeat(BUDGET - 5)}` }, schema)).toEqual([]);
   });
 
-  test('the cap counts code points, not UTF-16 units', () => {
+  test('the budget counts code points, not UTF-16 units', () => {
     // U+1D400 is a surrogate pair, so this value is 12000 UTF-16 units but
-    // 6000 code points — under the cap, and still checked.
+    // 6000 code points — inside the budget, and still checked.
     const schema = {
       type: 'object',
       properties: { code: { type: 'string', pattern: '^cap3-[a-z]+$' } },
@@ -750,7 +750,7 @@ describe('validate — pattern input over the length cap', () => {
         code: { type: 'string', allOf: [{ not: { pattern: '^cap4-forbidden$' } }] },
       },
     };
-    expect(validate({ code: 'x'.repeat(CAP + 1) }, schema)).toEqual([]);
+    expect(validate({ code: 'x'.repeat(BUDGET + 1) }, schema)).toEqual([]);
   });
 
   test('warns once per pattern, not once per oversized request', () => {
@@ -759,11 +759,92 @@ describe('validate — pattern input over the length cap', () => {
       type: 'object',
       properties: { code: { type: 'string', pattern: '^cap5-[a-z]+$' } },
     };
-    const value = 'x'.repeat(CAP + 1);
+    const value = 'x'.repeat(BUDGET + 1);
     validate({ code: value }, schema);
     validate({ code: value }, schema);
     validate({ code: `${value}y` }, schema);
     expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn.mock.calls[0]?.[0]).toContain('input over 10000 code points');
+    expect(warn.mock.calls[0]?.[0]).toContain(`${BUDGET} code points`);
+  });
+
+  test('two values that each fit alone do not both fit the request', () => {
+    // Neither value trips a per-value cap; together they exceed the budget, so
+    // the second check is skipped and its field passes on Google's judgement.
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const half = 'x'.repeat(BUDGET / 2 + 1);
+    const schema = {
+      type: 'object',
+      properties: {
+        a: { type: 'string', pattern: '^cap6a-[a-z]+$' },
+        b: { type: 'string', pattern: '^cap6b-[a-z]+$' },
+      },
+    };
+    const errors = validate({ a: half, b: half }, schema);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]?.field).toBe('a');
+  });
+
+  test('several patterns on one field draw on the same budget', () => {
+    // schema.ts emits two {pattern} members in one allOf; the second is a
+    // separate matcher run and is charged separately.
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const value = 'x'.repeat(BUDGET / 2 + 1);
+    const schema = {
+      type: 'object',
+      properties: {
+        code: {
+          type: 'string',
+          allOf: [{ pattern: '^cap7a-[a-z]+$' }, { pattern: '^cap7b-[a-z]+$' }],
+        },
+      },
+    };
+    const errors = validate({ code: value }, schema);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]?.message).toContain('cap7a');
+  });
+
+  test('a not-constraint after the budget is spent skips rather than rejects', () => {
+    // The inversion hazard again, reached through the budget rather than
+    // through one oversized value: the forward field eats the budget, so the
+    // not-constraint cannot be evaluated and must not reject.
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const schema = {
+      type: 'object',
+      properties: {
+        a: { type: 'string', pattern: '^cap8-[a-z]+$' },
+        b: { type: 'string', allOf: [{ not: { pattern: '^nope$' } }] },
+      },
+    };
+    const errors = validate({ a: 'x'.repeat(BUDGET), b: 'anything' }, schema);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]?.field).toBe('a');
+  });
+
+  test('the budget is per call, not module state shared across requests', () => {
+    // A Worker isolate serves many requests; a leaked counter would let one
+    // large body starve every request after it.
+    const value = 'x'.repeat(BUDGET);
+    const schema = {
+      type: 'object',
+      properties: { code: { type: 'string', pattern: '^cap9-[a-z]+$' } },
+    };
+    expect(validate({ code: value }, schema)).toHaveLength(1);
+    expect(validate({ code: value }, schema)).toHaveLength(1);
+    expect(validate({ code: value }, schema)).toHaveLength(1);
+  });
+
+  test('the not probe does not charge the budget twice', () => {
+    // The not branch asks whether the check is evaluable and then runs it. If
+    // asking also charged, a value over half the budget would pass the probe
+    // and then be skipped by its own recursive check — leaving notErrors empty
+    // and inverting into a rejection of a value the constraint permits.
+    const value = 'x'.repeat(BUDGET * 0.6);
+    const schema = {
+      type: 'object',
+      properties: {
+        code: { type: 'string', allOf: [{ not: { pattern: '^capA-forbidden$' } }] },
+      },
+    };
+    expect(validate({ code: value }, schema)).toEqual([]);
   });
 });

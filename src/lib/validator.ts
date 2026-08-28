@@ -52,41 +52,77 @@ function getPattern(pattern: string): Matcher | null {
 // factor of the matcher's n·m·R (m and R are capped at compile time). A
 // schema's `maxLength` bounds n where it exists — it is terminal, so an
 // oversized string never reaches the pattern check — but a schema without one
-// leaves the axis open. Cap it here too.
-const MAX_PATTERN_INPUT_CODE_POINTS = 10_000;
+// leaves the axis open.
+//
+// The budget is per `validate()` call, not per value, because one request body
+// carries many pattern checks: `schema.ts` can put two `{pattern}` members in
+// a single field's `allOf` and a `{not: {pattern}}` on top, and a form has as
+// many text fields as its author wrote. Capping each value would leave their
+// sum unbounded — ten near-cap values cost ten times one. A shared budget
+// bounds the whole request's matching work at n code points, however they are
+// spread across fields and constraints.
+export const MAX_PATTERN_CODE_POINTS_PER_REQUEST = 10_000;
+
+// Passed down the recursion rather than held in a module-level counter: module
+// state would persist across requests in a Worker isolate, so one large body
+// would starve every later request served by the same isolate, and it would
+// make the tests order-dependent.
+interface PatternBudget {
+  remaining: number;
+}
 
 // Code points, not UTF-16 units: the matcher iterates the string, so a
-// surrogate pair is one step to it. A UTF-16 length is never below the code
-// point count, which makes the cheap check a sound early exit.
-function isTooLongToMatch(value: string): boolean {
-  if (value.length <= MAX_PATTERN_INPUT_CODE_POINTS) return false;
+// surrogate pair is one step to it. Returns null once the count passes `limit`,
+// which also bounds the loop itself at limit + 1 iterations.
+function codePointCountWithin(value: string, limit: number): number | null {
   let count = 0;
   for (const _cp of value) {
     count++;
-    if (count > MAX_PATTERN_INPUT_CODE_POINTS) return true;
+    if (count > limit) return null;
   }
-  return false;
+  return count;
 }
 
 // One warning per pattern, like the compile cache above: an attacker sending
 // many oversized bodies must not be able to flood the log.
 const oversizedInputWarned = new Set<string>();
 
+function warnBudgetExhausted(pattern: string): void {
+  if (oversizedInputWarned.has(pattern)) return;
+  oversizedInputWarned.add(pattern);
+  console.warn(
+    `Skipping pattern (over the remaining request budget of ` +
+      `${MAX_PATTERN_CODE_POINTS_PER_REQUEST} code points): ${pattern}`,
+  );
+}
+
+// Whether this pattern check can be evaluated at all, without charging the
+// budget. The `not` branch asks before it inverts a result, and the recursive
+// call it then makes is what charges — asking here must not double-charge.
+function isPatternEvaluable(pattern: string, value: unknown, budget: PatternBudget): boolean {
+  if (getPattern(pattern) === null) return false;
+  if (typeof value !== 'string') return true;
+  if (codePointCountWithin(value, budget.remaining) !== null) return true;
+  warnBudgetExhausted(pattern);
+  return false;
+}
+
 // The matcher to use for this pattern against this value, or null if the check
 // cannot be evaluated — the pattern is outside the supported subset, or the
-// value is too long to run it over. Callers skip an unevaluable check in both
-// directions; Google remains the final judge (ADR 0002, ADR 0005).
-function matcherFor(pattern: string, value: unknown): Matcher | null {
+// value does not fit in what is left of the request's matching budget. A
+// returned matcher has already had its input charged against the budget.
+// Callers skip an unevaluable check in both directions; Google remains the
+// final judge (ADR 0002, ADR 0005).
+function matcherFor(pattern: string, value: unknown, budget: PatternBudget): Matcher | null {
   const matcher = getPattern(pattern);
   if (matcher === null) return null;
-  if (typeof value === 'string' && isTooLongToMatch(value)) {
-    if (!oversizedInputWarned.has(pattern)) {
-      oversizedInputWarned.add(pattern);
-      console.warn(
-        `Skipping pattern (input over ${MAX_PATTERN_INPUT_CODE_POINTS} code points): ${pattern}`,
-      );
+  if (typeof value === 'string') {
+    const count = codePointCountWithin(value, budget.remaining);
+    if (count === null) {
+      warnBudgetExhausted(pattern);
+      return null;
     }
-    return null;
+    budget.remaining -= count;
   }
   return matcher;
 }
@@ -96,6 +132,7 @@ function validateProperty(
   value: unknown,
   schema: Schema,
   errors: ValidationError[],
+  budget: PatternBudget,
 ): void {
   const type = schema['type'];
   if (typeof type === 'string' && !checkType(value, type)) {
@@ -137,7 +174,7 @@ function validateProperty(
     }
     const pattern = schema['pattern'];
     if (typeof pattern === 'string') {
-      const re = matcherFor(pattern, value);
+      const re = matcherFor(pattern, value, budget);
       if (re && !re.test(value)) {
         errors.push({ field, message: `must match pattern: ${pattern}` });
       }
@@ -190,7 +227,7 @@ function validateProperty(
     const items = schema['items'];
     if (isObject(items)) {
       value.forEach((item, i) => {
-        validateProperty(`${field}[${i}]`, item, items, errors);
+        validateProperty(`${field}[${i}]`, item, items, errors, budget);
       });
     }
   }
@@ -206,19 +243,19 @@ function validateProperty(
         // rejecting requires the value to match every key including the
         // unevaluable pattern, so a confident rejection is never possible. It
         // holds for both ways a check can be unevaluable, uncompilable pattern
-        // and over-long value, so the test is the same matcherFor the forward
-        // check uses.
+        // and a value that does not fit the request's remaining matching
+        // budget, so the test is the same one the forward check applies.
         const notPattern = isObject(notSchema) ? notSchema['pattern'] : undefined;
-        if (typeof notPattern === 'string' && matcherFor(notPattern, value) === null) {
+        if (typeof notPattern === 'string' && !isPatternEvaluable(notPattern, value, budget)) {
           continue;
         }
         const notErrors: ValidationError[] = [];
-        validateProperty(field, value, notSchema, notErrors);
+        validateProperty(field, value, notSchema, notErrors, budget);
         if (notErrors.length === 0) {
           errors.push({ field, message: `must not match constraint: ${JSON.stringify(notSchema)}` });
         }
       } else if (isObject(sub)) {
-        validateProperty(field, value, sub, errors);
+        validateProperty(field, value, sub, errors, budget);
       }
     }
   }
@@ -227,7 +264,7 @@ function validateProperty(
   if (Array.isArray(anyOf)) {
     const matched = (anyOf as Schema[]).some((sub) => {
       const subErrors: ValidationError[] = [];
-      validateProperty(field, value, sub, subErrors);
+      validateProperty(field, value, sub, subErrors, budget);
       return subErrors.length === 0;
     });
     if (!matched) {
@@ -245,6 +282,8 @@ export function validate(
   }
 
   const errors: ValidationError[] = [];
+  // One budget per request, shared by every pattern check this call makes.
+  const budget: PatternBudget = { remaining: MAX_PATTERN_CODE_POINTS_PER_REQUEST };
   const properties = schema['properties'];
   const required = schema['required'];
   const additionalProperties = schema['additionalProperties'];
@@ -271,7 +310,7 @@ export function validate(
     for (const [key, propSchema] of Object.entries(properties)) {
       if (!Object.hasOwn(data, key)) continue;
       if (isObject(propSchema)) {
-        validateProperty(key, data[key], propSchema, errors);
+        validateProperty(key, data[key], propSchema, errors, budget);
       }
     }
   }
