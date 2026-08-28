@@ -37,7 +37,9 @@ in O(n·m·R) with no backtracking, where n is the input length in code points,
 m the instruction count, and R the number of ranges in a single `char`
 instruction's character class (`[a-c0-9]` has two). R is a real factor, not a
 constant: the matcher tests membership with a linear scan over the class's
-ranges, and nothing caps how many a class may carry.
+ranges, and nothing caps how many a class may carry. Sorting and merging the
+ranges at parse time and binary-searching them would make that factor `log R`;
+it is tracked separately (#30).
 
 Execution safety stops being a property of the pattern. Alternation, multiple
 quantifiers, quantified groups and nested quantifiers are all accepted. What
@@ -108,9 +110,10 @@ never make a form permanently un-onboardable.
   product's size. m is capped at 4000 and R and n are not, so a deployable
   pattern can still cost minutes of CPU on a large body — worse than before this
   branch, since m could not previously reach 4000 and the work now runs in
-  JavaScript rather than inside V8's engine. The remaining exposure closes when
-  #29 bounds the request body; until then it is bounded by construction only in
-  shape, not in magnitude.
+  JavaScript rather than inside V8's engine. Two follow-ups close the two open
+  axes: #29 bounds the request body (n), and #30 replaces the class-range
+  linear scan with a binary search (R). Until they land it is bounded by
+  construction only in shape, not in magnitude.
 - The subset a form author must respect is explainable in one sentence:
   standard regex syntax, minus the constructs the Decision above lists — chiefly
   Unicode property classes, inline flags, POSIX classes, lookarounds, named
