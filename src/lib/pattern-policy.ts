@@ -73,6 +73,12 @@ export function findSchemaPatternIssues(
   return issues;
 }
 
+export const SAFE_SUBSET_HINT =
+  'Rephrase the pattern to fit the safe subset: at most one repetition, ' +
+  'targeting a single character or class; a leading ^ before unbounded ' +
+  'repetition; no alternation (|) — or split the question. ' +
+  'See docs/adr/0002 and issue #21.';
+
 export function assertDeployablePatterns(formId: string, schema: unknown): void {
   const issues = findSchemaPatternIssues(schema);
   if (issues.length === 0) return;
@@ -86,6 +92,6 @@ export function assertDeployablePatterns(formId: string, schema: unknown): void 
     })
     .join('\n');
   throw new Error(
-    `Form ${formId} contains patterns that cannot be deployed:\n${details}`,
+    `Form ${formId} contains patterns that cannot be deployed:\n${details}\n${SAFE_SUBSET_HINT}`,
   );
 }

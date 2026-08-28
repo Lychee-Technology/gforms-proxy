@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 import packageJson from '../../package.json' with { type: 'json' };
 import registry from '../../src/forms/registry.js';
 import type { FormDefinition } from '../../src/lib/types.js';
+import { SAFE_SUBSET_HINT } from '../../src/lib/pattern-policy.js';
 import { validateRegisteredForms } from '../validate-forms.js';
 
 const definitionWithSchema = (
@@ -40,9 +41,11 @@ describe('validateRegisteredForms', () => {
     expect(() => validateRegisteredForms(definitions)).toThrow(
       'Registered form validation failed:\n' +
         'Form unsafe-form-one contains patterns that cannot be deployed:\n' +
-        '- $.properties.code.pattern: outside safe RE2 subset: \\p{L}\n\n' +
+        '- $.properties.code.pattern: outside safe RE2 subset: \\p{L}\n' +
+        `${SAFE_SUBSET_HINT}\n\n` +
         'Form unsafe-form-two contains patterns that cannot be deployed:\n' +
-        '- $.properties.answer.allOf[0].not.pattern: outside safe RE2 subset: (a+)+',
+        '- $.properties.answer.allOf[0].not.pattern: outside safe RE2 subset: (a+)+\n' +
+        SAFE_SUBSET_HINT,
     );
   });
 });

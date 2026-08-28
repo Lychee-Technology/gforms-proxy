@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import {
+  SAFE_SUBSET_HINT,
   assertDeployablePatterns,
   findSchemaPatternIssues,
 } from '../pattern-policy.js';
@@ -44,7 +45,8 @@ describe('findSchemaPatternIssues', () => {
     expect(() => assertDeployablePatterns('nested-form', schema)).toThrow(
       'Form nested-form contains patterns that cannot be deployed:\n' +
         '- $.properties.code.pattern: outside safe RE2 subset: \\p{L}\n' +
-        '- $.properties.code.allOf[0].not.pattern: outside safe RE2 subset: [a-z',
+        '- $.properties.code.allOf[0].not.pattern: outside safe RE2 subset: [a-z\n' +
+        SAFE_SUBSET_HINT,
     );
   });
 
