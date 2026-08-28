@@ -128,8 +128,10 @@ function validateProperty(
     }
     const maxItems = schema['maxItems'];
     if (typeof maxItems === 'number' && value.length > maxItems) {
-      // Skip the per-item scans below: an oversized array is already invalid,
-      // and scanning it would burn CPU proportional to attacker-chosen length.
+      // Terminal, like a type mismatch: returning skips the per-item scans
+      // below and any allOf/anyOf, because an oversized array is already
+      // invalid and scanning it would burn CPU proportional to
+      // attacker-chosen length.
       errors.push({ field, message: `must have at most ${maxItems} item(s)` });
       return;
     }
