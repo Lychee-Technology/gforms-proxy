@@ -57,6 +57,31 @@ describe('validateFormUrl', () => {
       validateFormUrl('https://docs.google.com/forms/d/1FAIpQLSabc123/edit'),
     ).toThrow(FormParseError);
   });
+  test('accepts viewform URL with query string', () => {
+    expect(() => validateFormUrl(`${VALID_URL}?usp=sf_link`)).not.toThrow();
+  });
+  test('accepts viewform URL with fragment', () => {
+    expect(() => validateFormUrl(`${VALID_URL}#responses`)).not.toThrow();
+  });
+  test('rejects path traversal escaping the forms path', () => {
+    expect(() =>
+      validateFormUrl(`${VALID_URL}/../../../../document/d/SECRET/edit`),
+    ).toThrow(FormParseError);
+  });
+  test('rejects traversal that retargets a different form', () => {
+    expect(() =>
+      validateFormUrl(`${VALID_URL}/../../../e/1FAIpQLSother456/viewform`),
+    ).toThrow(FormParseError);
+  });
+  test('rejects extra path segments after viewform', () => {
+    expect(() => validateFormUrl(`${VALID_URL}/formResponse`)).toThrow(FormParseError);
+  });
+  test('rejects a trailing slash after viewform', () => {
+    expect(() => validateFormUrl(`${VALID_URL}/`)).toThrow(FormParseError);
+  });
+  test('rejects a backslash-escaped path segment after viewform', () => {
+    expect(() => validateFormUrl(`${VALID_URL}\\..\\..\\document`)).toThrow(FormParseError);
+  });
 });
 
 describe('parseFormHtml', () => {
