@@ -178,7 +178,8 @@ describe('POST /api/v1/forms/:formId/responses', () => {
 
   test('returns 400 when Google Forms answers 413 for an over-large payload', async () => {
     // Payload-too-large is the caller's data by any reading, so it shares the
-    // 400 path with a validation rejection.
+    // 400 status with a validation rejection — but not its message: the fault
+    // is the size of the request, not the content of any field.
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('<html>', { status: 413 }));
     const res = await app.request('/api/v1/forms/testForm123/responses', {
       method: 'POST',
@@ -187,7 +188,10 @@ describe('POST /api/v1/forms/:formId/responses', () => {
     });
     expect(res.status).toBe(400);
     const json = await res.json() as { error: string };
-    expect(json.error).toContain('Google Forms rejected the submission');
+    expect(json.error).toContain('too large');
+    expect(json.error).toContain('smaller payload');
+    expect(json.error).not.toContain('validation rules');
+    expect(json.error).not.toContain('rejected the submission');
   });
 
   test('returns 502 naming the status when the form is gone (404)', async () => {

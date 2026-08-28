@@ -80,9 +80,12 @@ require the value to match all of them, including the one nobody evaluated.
 **A 400 from `formResponse` maps to a 400, not a 502.** Rejection by Google is
 now the normal path for a violated regex rule, so it must not surface as
 "Failed to submit to Google Forms" with a 502. `submitter.ts` already carries
-the upstream status on `SubmissionError`; the route maps 400 — and 413, which
-is the caller's payload by any reading — to a 400 naming the form's validation
-rules as the cause. Google's rejection body is a 168 KB rendered HTML page, not
+the upstream status on `SubmissionError`; the route maps 400 to a 400 naming the
+form's validation rules as the cause. 413 is the caller's payload by any reading
+and so becomes a 400 too, but with its own message about the size of the
+submission — pointing the caller at their field values when the request was
+merely too large would be a wrong turn.
+Google's rejection body is a 168 KB rendered HTML page, not
 a machine-readable error, so no field-level detail is extracted from it —
 parsing that page would be fragile in exactly the way the rest of the parser
 already is, for a message the client can get from the schema.

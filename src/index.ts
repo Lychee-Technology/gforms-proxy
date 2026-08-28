@@ -108,17 +108,30 @@ app.post('/api/v1/forms/:formId/responses', async (c) => {
 
       // Google validates the submission itself and answers 400 when it rejects
       // one — a regex rule this proxy no longer checks locally, a missing
-      // required answer, an over-length value (ADR 0006). 413 is the caller's
-      // payload by any reading. Both are the client's fault, not an upstream
-      // failure, so they must not surface as a 502. Google's body is a rendered
-      // HTML page, not a machine-readable error, so there is no field-level
-      // detail to pass on.
-      if (status === 400 || status === 413) {
+      // required answer, an over-length value (ADR 0006). That is the client's
+      // fault, not an upstream failure, so it must not surface as a 502.
+      // Google's body is a rendered HTML page, not a machine-readable error, so
+      // there is no field-level detail to pass on.
+      if (status === 400) {
         return c.json(
           {
             error:
               'Google Forms rejected the submission. Check the values against ' +
               "the form's validation rules.",
+          },
+          400,
+        );
+      }
+
+      // 413 is the caller's payload by any reading, so it is a 400 too — but
+      // the fault is the size of the request, not the content of any field.
+      // Sending the caller off to audit their values would be a wrong turn.
+      if (status === 413) {
+        return c.json(
+          {
+            error:
+              'The submission was too large for Google Forms to accept. ' +
+              'Send a smaller payload.',
           },
           400,
         );

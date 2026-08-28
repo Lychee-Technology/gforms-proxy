@@ -67,6 +67,8 @@ pnpm exec tsx scripts/gen-field-mapping.ts --url <viewform_url> [--gemini-key <k
 
 `--gemini-key` (or the `GEMINI_API_KEY` env var) enables Gemini-generated field keys and translations; without it, field keys fall back to mechanical `field_N` names. `--turnstile` marks the form as Turnstile-protected. If you regenerate a Turnstile-protected form without that flag, the script aborts unless you pass `--force`.
 
+If the generated schema carries any regex validation, the script prints a note saying how many fields it affects: Google enforces those rules at submission time, not this proxy, so a violating value comes back as a 400 from the submission endpoint instead of being caught locally.
+
 To let the Worker accept submissions for the form, register it: add a JSON import and a `Map` entry in `src/forms/registry.ts`, then deploy (see `docs/adr/0001-static-bundled-form-registry.md`).
 
 ### API
@@ -76,9 +78,9 @@ To let the Worker accept submissions for the form, register it: add a JSON impor
 `POST /api/v1/forms/:formId/responses` accepts a JSON body for a pre-registered form, validates it against the stored schema, verifies Turnstile when the definition requires it, and forwards the data to Google's `formResponse` endpoint. Responses:
 
 - `200`: `{ "success": true }` once Google accepts the submission
-- `400`: `{ "error": "Validation failed", "details": [{ "field": "...", "message": "..." }] }` when the body violates the schema; an invalid JSON body, a missing/non-string `turnstile_token`, or a rejected Turnstile token also gets a 400
+- `400`: `{ "error": "Validation failed", "details": [{ "field": "...", "message": "..." }] }` when the body violates the schema; an invalid JSON body, a missing/non-string `turnstile_token`, or a rejected Turnstile token also gets a 400. Two more cases reach a 400 without any `details` array, carrying only `{ "error": "..." }`: a field value this proxy cannot serialize (the message names the field), and a submission Google itself rejects — Google answers `formResponse` with a rendered HTML page rather than machine-readable errors, so there is no field-level detail to pass on. A regex rule is enforced by Google, not here, so a violation arrives this way (see `docs/adr/0006-google-enforces-patterns-not-us.md`). Google answering 413 also becomes a 400, with a message about the size of the payload rather than the form's validation rules
 - `404`: the `formId` is not registered
-- `502`: Google rejected the submission
+- `502`: Google did not accept the request for a reason that is not the caller's payload — any other 4xx (the message names the upstream status; the form may be unavailable, restricted, or rate limited) — or the submission failed outright, on a Google 5xx or a network failure
 - `503`: `{ "error": "Turnstile verification is temporarily unavailable" }` when Turnstile verification cannot be performed — the `TURNSTILE_SECRET_KEY` secret is not configured, or the siteverify service is unreachable or misbehaving
 
 ## Output example
