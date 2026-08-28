@@ -14,10 +14,6 @@ import type { CharRange, Node } from './ast.js';
 /** RE2 rejects a repeat count above this, so a Google Form cannot contain one. */
 export const RE2_MAX_REPEAT = 1000;
 
-// RE2 decimal counts are 0 or a nonzero digit followed by digits; a brace form
-// with a leading zero is literal text rather than a quantifier.
-const BRACE = /^\{(0|[1-9]\d*)(?:,(0|[1-9]\d*)?)?\}/;
-
 type Quantifier = { min: number; max: number | null };
 
 const CP = {
@@ -337,9 +333,15 @@ class Parser {
    * is not one. Returns null without consuming for a brace form outside RE2's
    * decimal grammar, which is literal text. A malformed or out-of-range bound
    * also returns null, but additionally sets the failed flag; parse() checks
-   * this flag to reject the entire pattern. This mechanism ensures that out-of-
-   * range bounds (e.g., a{1001}) fail the whole parse, while invalid brace
-   * syntax (e.g., a{,2}) leaves the { to be treated as a literal character.
+   * this flag to reject the entire pattern. This mechanism rescues two wrong-
+   * branch paths that would otherwise occur: the missing-operand guard in
+   * parseAtom (which restores and returns null), and the double-repeat guard
+   * in applyQuantifier (which likewise returns null). Both return null correctly
+   * when an out-of-range bound returns null, and the failed flag is the only
+   * difference between "not a quantifier" (which is fine) and "quantifier error"
+   * (which is not). This ensures that out-of-range bounds (e.g., a{1001}) fail
+   * the whole parse, while invalid brace syntax (e.g., a{,2}) leaves the { to
+   * be treated as a literal character.
    */
   private readQuantifier(): Quantifier | null {
     const cp = this.peek();
@@ -359,17 +361,18 @@ class Parser {
 
     // Scan the brace form directly: {n}, {n,}, or {n,m}.
     // Each count is 0 or a nonzero digit followed by digits (no leading zeros).
-    // This avoids O(n²) string allocation and argument-list overflows.
+    // Accumulate the value numerically to avoid unbounded spreads and O(n²) allocation.
     const save = this.i;
     this.i++; // skip the '{'
 
     // Read the first count.
-    const minStart = this.i;
+    let min = 0;
     let minDigits = 0;
     if (this.peek() === 0x30) {
       // '0'
       this.i++;
       minDigits = 1;
+      min = 0;
     } else if (this.peek() !== undefined && this.peek()! >= 0x31 && this.peek()! <= 0x39) {
       // nonzero digit
       while (
@@ -377,6 +380,10 @@ class Parser {
         this.peek()! >= 0x30 &&
         this.peek()! <= 0x39
       ) {
+        const digit = this.peek()! - 0x30;
+        min = min * 10 + digit;
+        // Clamp to avoid overflow; once over the limit, stay over.
+        if (min > RE2_MAX_REPEAT) min = RE2_MAX_REPEAT + 1;
         this.i++;
         minDigits++;
       }
@@ -386,24 +393,18 @@ class Parser {
       return null; // not a brace form
     }
 
-    const min = Number(String.fromCodePoint(...this.cps.slice(minStart, this.i)));
-
     // Check for comma.
     let max: number | null = min; // default to {n}
-    if (this.peek() === CP.dash) {
-      // This is {n-...}, not a valid quantifier.
-      this.i = save;
-      return null;
-    }
     if (this.peek() === 0x2c) {
       // ','
       this.i++;
-      const maxStart = this.i;
+      let maxVal = 0;
       let maxDigits = 0;
       if (this.peek() === 0x30) {
         // '0'
         this.i++;
         maxDigits = 1;
+        maxVal = 0;
       } else if (this.peek() !== undefined && this.peek()! >= 0x31 && this.peek()! <= 0x39) {
         // nonzero digit
         while (
@@ -411,6 +412,10 @@ class Parser {
           this.peek()! >= 0x30 &&
           this.peek()! <= 0x39
         ) {
+          const digit = this.peek()! - 0x30;
+          maxVal = maxVal * 10 + digit;
+          // Clamp to avoid overflow; once over the limit, stay over.
+          if (maxVal > RE2_MAX_REPEAT) maxVal = RE2_MAX_REPEAT + 1;
           this.i++;
           maxDigits++;
         }
@@ -418,7 +423,7 @@ class Parser {
       if (maxDigits === 0) {
         max = null; // {n,}
       } else {
-        max = Number(String.fromCodePoint(...this.cps.slice(maxStart, this.i)));
+        max = maxVal;
       }
     }
 

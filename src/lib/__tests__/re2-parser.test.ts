@@ -352,4 +352,19 @@ describe('parse — quantifiers', () => {
     expect(result).not.toBeNull();
     expect((result as { kind: string }).kind).toBe('concat');
   });
+
+  test('a long digit run with closing brace does not throw', () => {
+    // Regression: unbounded spread in Number(String.fromCodePoint(...cps)) on the min value
+    const longDigitRun = 'a{' + '1'.repeat(200000) + '}';
+    expect(() => parse(longDigitRun)).not.toThrow();
+    expect(parse(longDigitRun)).toBeNull(); // exceeds RE2_MAX_REPEAT
+  });
+
+  test('a long digit run without closing brace does not throw', () => {
+    // Regression: worse case — this is not a quantifier (no closing brace)
+    // but min is materialized before the } check, causing a throw
+    const longDigitRunNoBrace = 'a{' + '1'.repeat(200000);
+    expect(() => parse(longDigitRunNoBrace)).not.toThrow();
+    expect(parse(longDigitRunNoBrace)).not.toBeNull(); // literal text: 'a' + '{' + many '1's
+  });
 });
