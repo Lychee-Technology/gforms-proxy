@@ -48,28 +48,8 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('main() generated pattern policy', () => {
-  test('rejects an unsupported generated regex before writing the definition', async () => {
-    const formId = 'unsafePatternForm123';
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => new Response(htmlForPattern('\\p{L}'))),
-    );
-
-    await expect(
-      main([
-        'node',
-        'gen-field-mapping.ts',
-        '--url',
-        `https://docs.google.com/forms/d/e/${formId}/viewform`,
-      ]),
-    ).rejects.toThrow(
-      `Form ${formId} contains patterns that cannot be deployed:\n- $.properties.field_1.pattern: unsupported RE2 syntax: ^(?:\\p{L})$`,
-    );
-    expect(existsSync(definitionPath(formId))).toBe(false);
-  });
-
-  test('writes the definition when the generated regex is safe', async () => {
+describe('main() and forms with regex validation', () => {
+  test('writes the definition and records the pattern in the schema', async () => {
     const formId = 'safePatternForm123';
     vi.stubGlobal('fetch', vi.fn(async () => new Response(htmlForPattern('[a-z]+'))));
 
@@ -81,11 +61,17 @@ describe('main() generated pattern policy', () => {
     ]);
 
     expect(existsSync(definitionPath(formId))).toBe(true);
+    const definition = JSON.parse(
+      readFileSync(definitionPath(formId), 'utf-8'),
+    ) as { schema: { properties: Record<string, { pattern?: string }> } };
+    expect(definition.schema.properties['field_1']?.pattern).toBe('^(?:[a-z]+)$');
   });
 
-  test('--allow-unevaluable-patterns writes the definition and records the allowance', async () => {
-    const formId = 'overridePatternForm123';
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  test('writes the definition for a pattern no local matcher could evaluate', async () => {
+    // Patterns are no longer evaluated locally, so none of them gates
+    // generation: the schema records the rule and Google enforces it
+    // (ADR 0006).
+    const formId = 'unicodePatternForm123';
     vi.stubGlobal('fetch', vi.fn(async () => new Response(htmlForPattern('\\p{L}'))));
 
     await main([
@@ -93,13 +79,12 @@ describe('main() generated pattern policy', () => {
       'gen-field-mapping.ts',
       '--url',
       `https://docs.google.com/forms/d/e/${formId}/viewform`,
-      '--allow-unevaluable-patterns',
     ]);
 
+    expect(existsSync(definitionPath(formId))).toBe(true);
     const definition = JSON.parse(
       readFileSync(definitionPath(formId), 'utf-8'),
-    ) as Record<string, unknown>;
-    expect(definition['unevaluablePatternsAllowed']).toBe(true);
-    expect(warn.mock.calls[0]?.[0]).toContain('checked only by Google');
+    ) as { schema: { properties: Record<string, { pattern?: string }> } };
+    expect(definition.schema.properties['field_1']?.pattern).toBe('^(?:\\p{L})$');
   });
 });

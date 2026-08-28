@@ -53,12 +53,6 @@ export interface FormDefinition {
   schema: Record<string, unknown>;
   fieldMap: Record<string, string>;  // schemaKey → "entry.XXXXXXX"
   turnstileEnabled?: boolean;
-  /**
-   * Set by `gen-field-mapping --allow-unevaluable-patterns`. The schema holds
-   * a pattern the matcher cannot evaluate; the deploy gate reports it instead
-   * of failing, and the runtime skips it — Google checks that field alone.
-   */
-  unevaluablePatternsAllowed?: boolean;
 }
 
 export const QUESTION_TYPE_MAP: Record<number, string> = {

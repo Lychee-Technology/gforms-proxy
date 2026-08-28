@@ -1,6 +1,5 @@
-import { describe, test, expect, vi, afterEach } from 'vitest';
-import { validate, MAX_PATTERN_CODE_POINTS_PER_REQUEST as BUDGET } from '../validator.js';
-import { compilePattern } from '../re2/index.js';
+import { describe, test, expect, vi } from 'vitest';
+import { validate } from '../validator.js';
 
 describe('validate — required fields', () => {
   const schema = {
@@ -99,16 +98,6 @@ describe('validate — string constraints', () => {
     expect(validate({ url: 'https://example.com' }, schema)).toEqual([]);
   });
 
-  test('fails pattern', () => {
-    const schema = { type: 'object', properties: { code: { type: 'string', pattern: '^[A-Z]+$' } } };
-    const errors = validate({ code: 'abc' }, schema);
-    expect(errors.some((e) => e.field === 'code')).toBe(true);
-  });
-
-  test('passes pattern', () => {
-    const schema = { type: 'object', properties: { code: { type: 'string', pattern: '^[A-Z]+$' } } };
-    expect(validate({ code: 'ABC' }, schema)).toEqual([]);
-  });
 });
 
 describe('validate — number constraints', () => {
@@ -259,11 +248,11 @@ describe('validate — logical combinators', () => {
     const schema = {
       type: 'object',
       properties: {
-        code: { type: 'string', allOf: [{ pattern: '^[A-Z]' }, { minLength: 3 }] },
+        code: { type: 'string', allOf: [{ format: 'email' }, { minLength: 12 }] },
       },
     };
-    expect(validate({ code: 'ABC' }, schema)).toEqual([]);
-    const errors = validate({ code: 'ab' }, schema);
+    expect(validate({ code: 'user@example.com' }, schema)).toEqual([]);
+    const errors = validate({ code: 'a@b.co' }, schema);
     expect(errors.some((e) => e.field === 'code')).toBe(true);
   });
 
@@ -305,27 +294,39 @@ describe('validate — optional fields', () => {
   });
 });
 
-describe('validate — uncompilable (RE2-only) patterns', () => {
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  test('does not throw and skips the pattern check', () => {
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
+/**
+ * `pattern` is no longer evaluated locally: Google enforces regex rules
+ * server-side and rejects a violating submission with HTTP 400, and the
+ * matcher that evaluated them here cost far more than a Worker's CPU budget
+ * (ADR 0006). `schema.ts` still emits `pattern`, so these schemas are the
+ * shapes the validator actually receives.
+ */
+describe('validate \u2014 the pattern keyword is not enforced locally', () => {
+  test('a value that violates its pattern is accepted', () => {
     const schema = {
       type: 'object',
-      properties: { code: { type: 'string', pattern: '(?i)abc' } },
+      properties: { code: { type: 'string', pattern: '^[A-Z]+$' } },
     };
-    expect(() => validate({ code: 'anything' }, schema)).not.toThrow();
+    expect(validate({ code: 'abc' }, schema)).toEqual([]);
+    expect(validate({ code: 'ABC' }, schema)).toEqual([]);
+  });
+
+  test('no warning is logged for any pattern, however exotic', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const schema = {
+      type: 'object',
+      properties: { code: { type: 'string', pattern: '\\p{Greek}+' } },
+    };
     expect(validate({ code: 'anything' }, schema)).toEqual([]);
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
   });
 
   test('other constraints on the same property still apply', () => {
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
     const schema = {
       type: 'object',
       properties: {
-        code: { type: 'string', pattern: '(?i)def', minLength: 5 },
+        code: { type: 'string', pattern: '^[A-Z]+$', minLength: 5 },
       },
     };
     const errors = validate({ code: 'ab' }, schema);
@@ -333,365 +334,15 @@ describe('validate — uncompilable (RE2-only) patterns', () => {
     expect(errors[0]?.message).toContain('at least 5');
   });
 
-  test('warns once per unique pattern across repeated validations', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const schema = {
-      type: 'object',
-      properties: { code: { type: 'string', pattern: '(?i)ghi' } },
-    };
-    validate({ code: 'x' }, schema);
-    validate({ code: 'y' }, schema);
-    expect(warn).toHaveBeenCalledTimes(1);
-  });
-
-  test('skips a not-constraint whose pattern is uncompilable instead of rejecting everything', () => {
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const schema = {
-      type: 'object',
-      properties: {
-        code: {
-          type: 'string',
-          allOf: [{ not: { pattern: '(?i)jkl' } }],
-        },
-      },
-    };
-    expect(validate({ code: 'whatever' }, schema)).toEqual([]);
-  });
-
-  test('valid not-constraint patterns still reject matching values', () => {
-    const schema = {
-      type: 'object',
-      properties: {
-        code: { type: 'string', allOf: [{ not: { pattern: '^forbidden$' } }] },
-      },
-    };
-    expect(validate({ code: 'forbidden' }, schema)).toHaveLength(1);
-    expect(validate({ code: 'allowed' }, schema)).toEqual([]);
-  });
-});
-
-describe('validate — RE2 constructs that compile in JavaScript with different semantics', () => {
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  test('skips a pattern containing RE2 \\z instead of misreading it as literal z', () => {
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const schema = {
-      type: 'object',
-      properties: { code: { type: 'string', pattern: '^(?:foo\\z)$' } },
-    };
-    expect(validate({ code: 'foo' }, schema)).toEqual([]);
-    expect(validate({ code: 'fooz' }, schema)).toEqual([]);
-  });
-
-  test('skips \\Q...\\E quoting and \\p{...} classes, warning once each', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const quoted = {
-      type: 'object',
-      properties: { code: { type: 'string', pattern: '\\Qa.b\\E' } },
-    };
-    const unicodeClass = {
-      type: 'object',
-      properties: { code: { type: 'string', pattern: '\\p{L}+' } },
-    };
-    expect(validate({ code: 'x' }, quoted)).toEqual([]);
-    expect(validate({ code: 'x' }, unicodeClass)).toEqual([]);
-    expect(warn).toHaveBeenCalledTimes(2);
-  });
-
-  test('skips POSIX character classes like [[:alpha:]]', () => {
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const schema = {
-      type: 'object',
-      properties: { code: { type: 'string', pattern: '^[[:alpha:]]+$' } },
-    };
-    expect(validate({ code: '123' }, schema)).toEqual([]);
-  });
-
-  test('an escaped backslash before z is not RE2 \\z and stays enforced', () => {
-    const schema = {
-      type: 'object',
-      properties: { code: { type: 'string', pattern: '^a\\\\z$' } },
-    };
-    expect(validate({ code: 'a\\z' }, schema)).toEqual([]);
-    expect(validate({ code: 'az' }, schema)).toHaveLength(1);
-  });
-
-  test('skips RE2 \\a (BEL) instead of misreading it as literal a', () => {
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const schema = {
-      type: 'object',
-      properties: { code: { type: 'string', pattern: '^(?:\\a+)$' } },
-    };
-    expect(validate({ code: 'beep' }, schema)).toEqual([]);
-    expect(validate({ code: 'aaa' }, schema)).toEqual([]);
-  });
-
-  test('a not-constraint containing RE2 \\a is skipped', () => {
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const schema = {
-      type: 'object',
-      properties: {
-        code: { type: 'string', allOf: [{ not: { pattern: '\\a' } }] },
-      },
-    };
-    expect(validate({ code: 'a' }, schema)).toEqual([]);
-  });
-
-  test('skips RE2 braced hex escapes like \\x{41}', () => {
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const schema = {
-      type: 'object',
-      properties: { code: { type: 'string', pattern: '^\\x{41}$' } },
-    };
-    expect(validate({ code: 'B' }, schema)).toEqual([]);
-  });
-
-  test('a not-constraint whose pattern uses divergent RE2 syntax is skipped', () => {
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const schema = {
-      type: 'object',
-      properties: {
-        code: { type: 'string', allOf: [{ not: { pattern: 'foo\\z' } }] },
-      },
-    };
-    expect(validate({ code: 'fooz' }, schema)).toEqual([]);
-  });
-});
-
-describe('validate — patterns are evaluated with RE2 semantics', () => {
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  test('a matches-style dot pattern accepts U+2028 and \\r like RE2 does', () => {
-    const schema = {
-      type: 'object',
-      properties: { code: { type: 'string', pattern: '^(?:.)$' } },
-    };
-    expect(validate({ code: ' ' }, schema)).toEqual([]);
-    expect(validate({ code: '\r' }, schema)).toEqual([]);
-    expect(validate({ code: '\n' }, schema)).toHaveLength(1);
-  });
-
-  test('dot matches a full non-BMP code point like RE2 does', () => {
-    const schema = {
-      type: 'object',
-      properties: { code: { type: 'string', pattern: '^(?:.)$' } },
-    };
-    expect(validate({ code: '\u{1F600}' }, schema)).toEqual([]);
-  });
-
-  test('\\s uses RE2 ASCII semantics, not JavaScript Unicode whitespace', () => {
-    const schema = {
-      type: 'object',
-      properties: { code: { type: 'string', pattern: '^\\s$' } },
-    };
-    expect(validate({ code: ' ' }, schema)).toEqual([]);
-    expect(validate({ code: ' ' }, schema)).toHaveLength(1);
-  });
-
-  test('constructs outside the verified subset are skipped, not guessed', () => {
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const schema = {
-      type: 'object',
-      properties: { code: { type: 'string', pattern: '(?P<year>19\\d\\d)' } },
-    };
-    expect(validate({ code: 'anything' }, schema)).toEqual([]);
-  });
-
-  test('a matches-style ^..$ counts code points: one emoji rejected, two accepted', () => {
-    const schema = {
-      type: 'object',
-      properties: { code: { type: 'string', pattern: '^(?:..)$' } },
-    };
-    expect(validate({ code: '\u{1F600}' }, schema)).toHaveLength(1);
-    expect(validate({ code: '\u{1F600}\u{1F600}' }, schema)).toEqual([]);
-    expect(validate({ code: 'ab' }, schema)).toEqual([]);
-  });
-
-  test('a does_not_match-style not ^..$ counts code points: one emoji accepted, two rejected', () => {
-    const schema = {
-      type: 'object',
-      properties: {
-        code: { type: 'string', allOf: [{ not: { pattern: '^(?:..)$' } }] },
-      },
-    };
-    expect(validate({ code: '\u{1F600}' }, schema)).toEqual([]);
-    expect(validate({ code: '\u{1F600}\u{1F600}' }, schema)).toHaveLength(1);
-  });
-
-  test('a compatible emoji literal accepts that emoji and rejects another value', () => {
-    const schema = {
-      type: 'object',
-      properties: { code: { type: 'string', pattern: '^(?:😀)$' } },
-    };
-    expect(validate({ code: '😀' }, schema)).toEqual([]);
-    expect(validate({ code: 'x' }, schema)).toHaveLength(1);
-  });
-});
-
-describe('validate — patterns that backtrack catastrophically in a native engine', () => {
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  test('enforces a nested repetition on a hostile value instead of skipping it', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const schema = {
-      type: 'object',
-      properties: {
-        code: { type: 'string', pattern: '^(?:(q+)+)$', minLength: 3 },
-      },
-    };
-    const hostileValue = `${'q'.repeat(100)}x`;
-
-    expect(validate({ code: hostileValue }, schema)).toEqual([
-      { field: 'code', message: 'must match pattern: ^(?:(q+)+)$' },
-    ]);
-    expect(validate({ code: 'x' }, schema)).toEqual([
-      { field: 'code', message: 'must be at least 3 character(s)' },
-      { field: 'code', message: 'must match pattern: ^(?:(q+)+)$' },
-    ]);
-    expect(warn).not.toHaveBeenCalled();
-  });
-
-  test('an inverted constraint over a nested repetition is evaluated, not skipped', () => {
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const schema = {
-      type: 'object',
-      properties: {
-        code: {
-          type: 'string',
-          allOf: [{ not: { pattern: '^(?:(r+)+)$', minLength: 1 } }],
-        },
-      },
-    };
-
-    expect(validate({ code: 'x' }, schema)).toEqual([]);
-    expect(validate({ code: 'rrr' }, schema)).toHaveLength(1);
-  });
-
-  test('evaluates ambiguous alternation without executing it natively', () => {
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const nativeTest = RegExp.prototype.test;
-    let dangerousPatternExecuted = false;
-    vi.spyOn(RegExp.prototype, 'test').mockImplementation(function (
-      this: RegExp,
-      value: string,
-    ) {
-      if (this.source.includes('(?:a|aa)')) {
-        dangerousPatternExecuted = true;
-        return false;
-      }
-      return nativeTest.call(this, value);
-    });
-    const pattern = '^' + '(?:a|aa)'.repeat(30) + 'b$';
-    const schema = {
-      type: 'object',
-      properties: { code: { type: 'string', pattern } },
-    };
-
-    expect(validate({ code: `${'a'.repeat(60)}c` }, schema)).toEqual([
-      { field: 'code', message: `must match pattern: ${pattern}` },
-    ]);
-    expect(dangerousPatternExecuted).toBe(false);
-  });
-});
-
-describe('validate — patterns the matcher cannot compile', () => {
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  test('an unbalanced group does not throw, warns once, and skips only the pattern check', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const schema = {
-      type: 'object',
-      properties: { code: { type: 'string', pattern: '(', minLength: 3 } },
-    };
-    expect(() => validate({ code: 'x' }, schema)).not.toThrow();
-    const errors = validate({ code: 'x' }, schema);
-    expect(errors).toHaveLength(1);
-    expect(errors[0]?.message).toContain('at least 3');
-    expect(validate({ code: 'long enough' }, schema)).toEqual([]);
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn).toHaveBeenCalledWith(
-      expect.stringContaining('unsupported RE2 syntax'),
-    );
-  });
-});
-
-describe('compilePattern', () => {
-  test('a supported pattern yields a matcher', () => {
-    const result = compilePattern('^\\d{3}-\\d{4}$');
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.matcher.test('555-1234')).toBe(true);
-      expect(result.matcher.test('nope')).toBe(false);
-    }
-  });
-
-  test('unsupported syntax reports its reason', () => {
-    expect(compilePattern('\\p{L}+')).toEqual({
-      ok: false,
-      reason: 'unsupported RE2 syntax',
-    });
-  });
-
-  test('an oversized expansion reports its reason', () => {
-    expect(compilePattern('(?:a{1000}){1000}')).toEqual({
-      ok: false,
-      reason: 'pattern too large',
-    });
-  });
-
-  test('too many class ranges in total reports the same reason', () => {
-    // 1000 copies of \w sit exactly on the range budget; one more exceeds it
-    // while the instruction budget still has room, so this is the range budget
-    // speaking and it reports no new reason of its own.
-    expect(compilePattern('\\w{1000}').ok).toBe(true);
-    expect(compilePattern('\\w{1000}\\w')).toEqual({
-      ok: false,
-      reason: 'pattern too large',
-    });
-  });
-});
-
-describe('validator — pattern keyword', () => {
-  test('a pattern with alternation is now enforced locally', () => {
-    const schema = {
-      type: 'object',
-      properties: { answer: { type: 'string', pattern: '^(yes|no)$' } },
-    };
-    expect(validate({ answer: 'yes' }, schema)).toEqual([]);
-    expect(validate({ answer: 'maybe' }, schema)).toHaveLength(1);
-  });
-
-  test('an unsupported pattern is skipped with one warning, not rejected', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const schema = {
-      type: 'object',
-      properties: { answer: { type: 'string', pattern: '\\p{Greek}+' } },
-    };
-    expect(validate({ answer: 'anything' }, schema)).toEqual([]);
-    expect(validate({ answer: 'anything' }, schema)).toEqual([]);
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn.mock.calls[0]?.[0]).toContain('unsupported RE2 syntax');
-    warn.mockRestore();
-  });
-
   test('maxLength is terminal for its property', () => {
     const schema = {
       type: 'object',
       properties: {
-        answer: { type: 'string', maxLength: 3, pattern: '^\\d+$' },
+        answer: { type: 'string', maxLength: 3, format: 'email' },
       },
     };
-    // Only the length error: the pattern check never runs on an oversized
-    // string, so the work is one comparison rather than a scan proportional
-    // to attacker-chosen length.
+    // Only the length error: an oversized string is already invalid, so the
+    // checks below it never run.
     const errors = validate({ answer: 'abcdefgh' }, schema);
     expect(errors).toHaveLength(1);
     expect(errors[0]?.message).toContain('at most 3');
@@ -699,152 +350,63 @@ describe('validator — pattern keyword', () => {
 });
 
 /**
- * The per-request pattern-matching budget. `maxLength` bounds a single value's
- * length where a schema carries one; the budget bounds the sum over the whole
- * request, which is what one body full of pattern-bearing fields can otherwise
- * multiply. Each test uses a distinct pattern because the warn-once bookkeeping
- * is module-level and lives for the process.
+ * The inversion hazard. `schema.ts` emits `{not: {pattern}}` for
+ * does_not_match and does_not_contain. An unevaluated `pattern` yields no
+ * inner errors for any value, and inverting that would reject every
+ * submission to such a form \u2014 so the whole constraint is skipped.
  */
-describe('validate — the per-request pattern budget', () => {
-  afterEach(() => {
-    vi.restoreAllMocks();
+describe('validate \u2014 a not-constraint carrying a pattern is skipped', () => {
+  const schema = {
+    type: 'object',
+    properties: {
+      code: { type: 'string', allOf: [{ not: { pattern: '^forbidden$' } }] },
+    },
+  };
+
+  test('accepts a value that would have matched the forbidden pattern', () => {
+    expect(validate({ code: 'forbidden' }, schema)).toEqual([]);
   });
 
-  test('a single value over the whole budget skips its pattern check', () => {
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const schema = {
-      type: 'object',
-      properties: { code: { type: 'string', pattern: '^cap1-[a-z]+$' } },
-    };
-    expect(validate({ code: 'x'.repeat(BUDGET + 1) }, schema)).toEqual([]);
+  test('accepts a value that would not have matched it', () => {
+    expect(validate({ code: 'allowed' }, schema)).toEqual([]);
   });
 
-  test('a value exactly at the budget is still enforced', () => {
-    const schema = {
-      type: 'object',
-      properties: { code: { type: 'string', pattern: '^cap2-[a-z]+$' } },
-    };
-    expect(validate({ code: 'x'.repeat(BUDGET) }, schema)).toHaveLength(1);
-    expect(validate({ code: `cap2-${'x'.repeat(BUDGET - 5)}` }, schema)).toEqual([]);
-  });
-
-  test('the budget counts code points, not UTF-16 units', () => {
-    // U+1D400 is a surrogate pair, so this value is 12000 UTF-16 units but
-    // 6000 code points — inside the budget, and still checked.
-    const schema = {
-      type: 'object',
-      properties: { code: { type: 'string', pattern: '^cap3-[a-z]+$' } },
-    };
-    const value = '\u{1D400}'.repeat(6000);
-    expect(value.length).toBe(12000);
-    expect(validate({ code: value }, schema)).toHaveLength(1);
-  });
-
-  test('a not-constraint skips too instead of inverting into a rejection', () => {
-    // Letting the forward check skip while the not branch runs would leave
-    // notErrors empty and reject a value the constraint permits.
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const schema = {
+  test('accepts a non-string value rather than inverting into a rejection', () => {
+    // The inner `pattern` check only ever ran on strings, so a non-string
+    // value produced no inner errors even before this change.
+    const untyped = {
       type: 'object',
       properties: {
-        code: { type: 'string', allOf: [{ not: { pattern: '^cap4-forbidden$' } }] },
+        code: { allOf: [{ not: { pattern: '^forbidden$' } }] },
       },
     };
-    expect(validate({ code: 'x'.repeat(BUDGET + 1) }, schema)).toEqual([]);
+    expect(validate({ code: 42 }, untyped)).toEqual([]);
   });
 
-  test('warns once per pattern, not once per oversized request', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const schema = {
-      type: 'object',
-      properties: { code: { type: 'string', pattern: '^cap5-[a-z]+$' } },
-    };
-    const value = 'x'.repeat(BUDGET + 1);
-    validate({ code: value }, schema);
-    validate({ code: value }, schema);
-    validate({ code: `${value}y` }, schema);
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn.mock.calls[0]?.[0]).toContain(`${BUDGET}-code-point pattern budget`);
-  });
-
-  test('two values that each fit alone do not both fit the request', () => {
-    // Neither value trips a per-value cap; together they exceed the budget, so
-    // the second check is skipped and its field passes on Google's judgement.
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const half = 'x'.repeat(BUDGET / 2 + 1);
-    const schema = {
-      type: 'object',
-      properties: {
-        a: { type: 'string', pattern: '^cap6a-[a-z]+$' },
-        b: { type: 'string', pattern: '^cap6b-[a-z]+$' },
-      },
-    };
-    const errors = validate({ a: half, b: half }, schema);
-    expect(errors).toHaveLength(1);
-    expect(errors[0]?.field).toBe('a');
-  });
-
-  test('several patterns on one field draw on the same budget', () => {
-    // schema.ts emits two {pattern} members in one allOf; the second is a
-    // separate matcher run and is charged separately.
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const value = 'x'.repeat(BUDGET / 2 + 1);
-    const schema = {
+  test('is skipped whatever else the not-schema carries alongside the pattern', () => {
+    // A rejection would require the value to match every key of the
+    // not-schema, and one of them is the pattern nobody evaluated.
+    const withMore = {
       type: 'object',
       properties: {
         code: {
           type: 'string',
-          allOf: [{ pattern: '^cap7a-[a-z]+$' }, { pattern: '^cap7b-[a-z]+$' }],
+          allOf: [{ not: { pattern: '^forbidden$', minLength: 1 } }],
         },
       },
     };
-    const errors = validate({ code: value }, schema);
-    expect(errors).toHaveLength(1);
-    expect(errors[0]?.message).toContain('cap7a');
+    expect(validate({ code: 'forbidden' }, withMore)).toEqual([]);
+    expect(validate({ code: '' }, withMore)).toEqual([]);
   });
 
-  test('a not-constraint after the budget is spent skips rather than rejects', () => {
-    // The inversion hazard again, reached through the budget rather than
-    // through one oversized value: the forward field eats the budget, so the
-    // not-constraint cannot be evaluated and must not reject.
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const schema = {
+  test('a not-constraint without a pattern still negates normally', () => {
+    const withoutPattern = {
       type: 'object',
       properties: {
-        a: { type: 'string', pattern: '^cap8-[a-z]+$' },
-        b: { type: 'string', allOf: [{ not: { pattern: '^nope$' } }] },
+        val: { type: 'number', allOf: [{ not: { const: 0 } }] },
       },
     };
-    const errors = validate({ a: 'x'.repeat(BUDGET), b: 'anything' }, schema);
-    expect(errors).toHaveLength(1);
-    expect(errors[0]?.field).toBe('a');
-  });
-
-  test('the budget is per call, not module state shared across requests', () => {
-    // A Worker isolate serves many requests; a leaked counter would let one
-    // large body starve every request after it.
-    const value = 'x'.repeat(BUDGET);
-    const schema = {
-      type: 'object',
-      properties: { code: { type: 'string', pattern: '^cap9-[a-z]+$' } },
-    };
-    expect(validate({ code: value }, schema)).toHaveLength(1);
-    expect(validate({ code: value }, schema)).toHaveLength(1);
-    expect(validate({ code: value }, schema)).toHaveLength(1);
-  });
-
-  test('the not probe does not charge the budget twice', () => {
-    // The not branch asks whether the check is evaluable and then runs it. If
-    // asking also charged, a value over half the budget would pass the probe
-    // and then be skipped by its own recursive check — leaving notErrors empty
-    // and inverting into a rejection of a value the constraint permits.
-    const value = 'x'.repeat(BUDGET * 0.6);
-    const schema = {
-      type: 'object',
-      properties: {
-        code: { type: 'string', allOf: [{ not: { pattern: '^capA-forbidden$' } }] },
-      },
-    };
-    expect(validate({ code: value }, schema)).toEqual([]);
+    expect(validate({ val: 1 }, withoutPattern)).toEqual([]);
+    expect(validate({ val: 0 }, withoutPattern)).toHaveLength(1);
   });
 });
