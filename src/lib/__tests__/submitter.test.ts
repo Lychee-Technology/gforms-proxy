@@ -121,11 +121,29 @@ describe('submitToGoogleForms — HTTP behavior', () => {
     ).rejects.toThrow(SubmissionError);
   });
 
+  test('carries the upstream status code so the route can tell 4xx from 5xx', async () => {
+    // A 400 means Google rejected the submission against the form's own
+    // validation rules; the route maps that to a 400, not a 502 (ADR 0006).
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('<html>', { status: 400 }));
+
+    await expect(
+      submitToGoogleForms(SUBMISSION_URL, FIELD_MAP, { full_name: 'Alice' }),
+    ).rejects.toMatchObject({ statusCode: 400 });
+  });
+
   test('throws SubmissionError on network error', async () => {
     vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('network down'));
 
     await expect(
       submitToGoogleForms(SUBMISSION_URL, FIELD_MAP, { full_name: 'Alice' }),
     ).rejects.toThrow(SubmissionError);
+  });
+
+  test('leaves statusCode unset on a network error, so the route keeps 502', async () => {
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('network down'));
+
+    await expect(
+      submitToGoogleForms(SUBMISSION_URL, FIELD_MAP, { full_name: 'Alice' }),
+    ).rejects.toMatchObject({ statusCode: undefined });
   });
 });

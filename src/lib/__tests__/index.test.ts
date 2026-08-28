@@ -118,7 +118,7 @@ describe('POST /api/v1/forms/:formId/responses', () => {
     expect(json.success).toBe(true);
   });
 
-  test('returns 502 when Google Forms submission fails', async () => {
+  test('returns 502 when Google Forms fails on its own side', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('', { status: 500 }));
     const res = await app.request('/api/v1/forms/testForm123/responses', {
       method: 'POST',
@@ -128,6 +128,31 @@ describe('POST /api/v1/forms/:formId/responses', () => {
     expect(res.status).toBe(502);
     const json = await res.json() as { error: string };
     expect(json.error).toBe('Failed to submit to Google Forms');
+  });
+
+  test('returns 502 when Google Forms cannot be reached', async () => {
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('boom'));
+    const res = await app.request('/api/v1/forms/testForm123/responses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Alice' }),
+    });
+    expect(res.status).toBe(502);
+  });
+
+  test('returns 400 when Google Forms rejects the submission', async () => {
+    // Google validates server-side and answers 400 for a violated rule; that
+    // is a client error, not an upstream failure (ADR 0006).
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('<html>', { status: 400 }));
+    const res = await app.request('/api/v1/forms/testForm123/responses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Alice' }),
+    });
+    expect(res.status).toBe(400);
+    const json = await res.json() as { error: string };
+    expect(json.error).toContain('Google Forms rejected the submission');
+    expect(json.error).toContain('validation rules');
   });
 });
 

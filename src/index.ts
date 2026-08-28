@@ -97,6 +97,23 @@ app.post('/api/v1/forms/:formId/responses', async (c) => {
     await submitToGoogleForms(definition.submissionUrl, definition.fieldMap, body);
   } catch (err) {
     if (err instanceof SubmissionError) {
+      // Google validates the submission itself and answers 4xx when it
+      // rejects one — a regex rule this proxy no longer checks locally, a
+      // missing required answer, an over-length value (ADR 0006). That is the
+      // client's fault, not an upstream failure, so it must not surface as a
+      // 502. Google's body is a rendered HTML page, not a machine-readable
+      // error, so there is no field-level detail to pass on.
+      const status = err.statusCode;
+      if (status !== undefined && status >= 400 && status < 500) {
+        return c.json(
+          {
+            error:
+              'Google Forms rejected the submission. Check the values against ' +
+              "the form's validation rules.",
+          },
+          400,
+        );
+      }
       return c.json({ error: 'Failed to submit to Google Forms' }, 502);
     }
     console.error('Unexpected submission error:', err);
