@@ -136,3 +136,17 @@ describe('parse — unsupported syntax returns null', () => {
     expect(parse(pattern)).toBeNull();
   });
 });
+
+describe('parse — group depth limit', () => {
+  test('deeply nested groups (10000) return null', () => {
+    const pattern = '('.repeat(10000) + 'a' + ')'.repeat(10000);
+    expect(parse(pattern)).toBeNull();
+  });
+
+  test('reasonably nested groups (50) still parse', () => {
+    const pattern = '('.repeat(50) + 'a' + ')'.repeat(50);
+    const result = parse(pattern);
+    expect(result).not.toBeNull();
+    expect(result).toEqual({ kind: 'char', codePoint: 0x61 });
+  });
+});

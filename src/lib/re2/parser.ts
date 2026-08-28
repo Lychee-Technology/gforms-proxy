@@ -72,6 +72,7 @@ const isSurrogate = (cp: number): boolean => cp >= 0xd800 && cp <= 0xdfff;
 class Parser {
   private readonly cps: number[];
   private i = 0;
+  private depth = 0;
 
   constructor(pattern: string) {
     // Iterating the string yields code points; a lone surrogate yields its own
@@ -148,13 +149,19 @@ class Parser {
   }
 
   private parseGroup(): Node | null {
+    this.depth++;
+    if (this.depth > 200) return null;
     this.i++;
     if (this.peek() === CP.question) {
       // Only (?: is supported. (?i), (?P<x>…) and lookarounds are refused.
-      if (this.peek(1) !== CP.colon) return null;
+      if (this.peek(1) !== CP.colon) {
+        this.depth--;
+        return null;
+      }
       this.i += 2;
     }
     const body = this.parseAlternation();
+    this.depth--;
     if (body === null) return null;
     if (this.peek() !== CP.rparen) return null;
     this.i++;

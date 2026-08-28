@@ -11,8 +11,8 @@
 
 /** An inclusive code-point range. */
 export interface CharRange {
-  lo: number;
-  hi: number;
+  readonly lo: number;
+  readonly hi: number;
 }
 
 export type Assertion = 'start' | 'end' | 'word' | 'notWord';
@@ -20,7 +20,7 @@ export type Assertion = 'start' | 'end' | 'word' | 'notWord';
 export type Node =
   | { kind: 'empty' }
   | { kind: 'char'; codePoint: number }
-  | { kind: 'class'; negated: boolean; ranges: CharRange[] }
+  | { kind: 'class'; negated: boolean; ranges: readonly CharRange[] }
   | { kind: 'assert'; assertion: Assertion }
   | { kind: 'concat'; nodes: Node[] }
   | { kind: 'alt'; nodes: Node[] }
