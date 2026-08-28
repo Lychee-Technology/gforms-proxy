@@ -1,4 +1,4 @@
-import { toJavaScriptRegexSource, JS_REGEX_FLAGS } from './re2-compat.js';
+import { compilePattern, type Matcher } from './re2/index.js';
 
 export interface ValidationError {
   field: string;
@@ -27,30 +27,25 @@ function checkType(value: unknown, type: string): boolean {
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const URI_RE = /^https?:\/\/.+/;
 
-// Google Forms patterns use RE2 syntax. Each pattern is translated into
-// JavaScript source with identical semantics (see re2-compat.ts); a pattern
-// outside the verified subset, or one that still fails to compile, is cached
-// as null and its check skipped — Google remains the final judge.
-const patternCache = new Map<string, RegExp | null>();
+// Google Forms patterns use RE2 syntax. Each pattern is parsed and compiled
+// for the backtracking-free matcher (see re2/); a pattern outside the
+// supported subset is cached as null and its check skipped — Google remains
+// the final judge.
+const patternCache = new Map<string, Matcher | null>();
 
-function getPattern(pattern: string): RegExp | null {
-  let re = patternCache.get(pattern);
-  if (re === undefined) {
-    const source = toJavaScriptRegexSource(pattern);
-    if (source === null) {
-      console.warn(`Skipping pattern outside the JavaScript-compatible RE2 subset: ${pattern}`);
-      re = null;
+function getPattern(pattern: string): Matcher | null {
+  let matcher = patternCache.get(pattern);
+  if (matcher === undefined) {
+    const result = compilePattern(pattern);
+    if (result.ok) {
+      matcher = result.matcher;
     } else {
-      try {
-        re = new RegExp(source, JS_REGEX_FLAGS);
-      } catch {
-        console.warn(`Skipping uncompilable pattern: ${pattern}`);
-        re = null;
-      }
+      console.warn(`Skipping pattern (${result.reason}): ${pattern}`);
+      matcher = null;
     }
-    patternCache.set(pattern, re);
+    patternCache.set(pattern, matcher);
   }
-  return re;
+  return matcher;
 }
 
 function validateProperty(
@@ -84,7 +79,11 @@ function validateProperty(
     }
     const maxLength = schema['maxLength'];
     if (typeof maxLength === 'number' && value.length > maxLength) {
+      // Terminal, like maxItems: returning skips the format and pattern
+      // checks below and any allOf/anyOf. An oversized string is already
+      // invalid, and matching is linear in its attacker-chosen length.
       errors.push({ field, message: `must be at most ${maxLength} character(s)` });
+      return;
     }
     const format = schema['format'];
     if (format === 'email' && !EMAIL_RE.test(value)) {

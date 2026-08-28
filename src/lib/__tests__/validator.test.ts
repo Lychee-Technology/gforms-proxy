@@ -1,5 +1,6 @@
 import { describe, test, expect, vi, afterEach } from 'vitest';
 import { validate } from '../validator.js';
+import { compilePattern } from '../re2/index.js';
 
 describe('validate — required fields', () => {
   const schema = {
@@ -531,12 +532,12 @@ describe('validate — patterns are evaluated with RE2 semantics', () => {
   });
 });
 
-describe('validate — unsafe backtracking patterns', () => {
+describe('validate — patterns that backtrack catastrophically in a native engine', () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  test('skips a nested repetition immediately, caches it, and still applies minLength', () => {
+  test('enforces a nested repetition on a hostile value instead of skipping it', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const schema = {
       type: 'object',
@@ -546,14 +547,17 @@ describe('validate — unsafe backtracking patterns', () => {
     };
     const hostileValue = `${'q'.repeat(100)}x`;
 
-    expect(validate({ code: hostileValue }, schema)).toEqual([]);
+    expect(validate({ code: hostileValue }, schema)).toEqual([
+      { field: 'code', message: 'must match pattern: ^(?:(q+)+)$' },
+    ]);
     expect(validate({ code: 'x' }, schema)).toEqual([
       { field: 'code', message: 'must be at least 3 character(s)' },
+      { field: 'code', message: 'must match pattern: ^(?:(q+)+)$' },
     ]);
-    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).not.toHaveBeenCalled();
   });
 
-  test('skips the whole inverted constraint when its pattern is unsafe', () => {
+  test('an inverted constraint over a nested repetition is evaluated, not skipped', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const schema = {
       type: 'object',
@@ -566,9 +570,10 @@ describe('validate — unsafe backtracking patterns', () => {
     };
 
     expect(validate({ code: 'x' }, schema)).toEqual([]);
+    expect(validate({ code: 'rrr' }, schema)).toHaveLength(1);
   });
 
-  test('skips ambiguous alternation without executing it natively', () => {
+  test('evaluates ambiguous alternation without executing it natively', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const nativeTest = RegExp.prototype.test;
     let dangerousPatternExecuted = false;
@@ -588,12 +593,14 @@ describe('validate — unsafe backtracking patterns', () => {
       properties: { code: { type: 'string', pattern } },
     };
 
-    expect(validate({ code: `${'a'.repeat(60)}c` }, schema)).toEqual([]);
+    expect(validate({ code: `${'a'.repeat(60)}c` }, schema)).toEqual([
+      { field: 'code', message: `must match pattern: ${pattern}` },
+    ]);
     expect(dangerousPatternExecuted).toBe(false);
   });
 });
 
-describe('validate — patterns that pass translation but fail to compile', () => {
+describe('validate — patterns the matcher cannot compile', () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
@@ -610,6 +617,72 @@ describe('validate — patterns that pass translation but fail to compile', () =
     expect(errors[0]?.message).toContain('at least 3');
     expect(validate({ code: 'long enough' }, schema)).toEqual([]);
     expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('uncompilable'));
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('unsupported RE2 syntax'),
+    );
+  });
+});
+
+describe('compilePattern', () => {
+  test('a supported pattern yields a matcher', () => {
+    const result = compilePattern('^\\d{3}-\\d{4}$');
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.matcher.test('555-1234')).toBe(true);
+      expect(result.matcher.test('nope')).toBe(false);
+    }
+  });
+
+  test('unsupported syntax reports its reason', () => {
+    expect(compilePattern('\\p{L}+')).toEqual({
+      ok: false,
+      reason: 'unsupported RE2 syntax',
+    });
+  });
+
+  test('an oversized expansion reports its reason', () => {
+    expect(compilePattern('(?:a{1000}){1000}')).toEqual({
+      ok: false,
+      reason: 'pattern too large',
+    });
+  });
+});
+
+describe('validator — pattern keyword', () => {
+  test('a pattern with alternation is now enforced locally', () => {
+    const schema = {
+      type: 'object',
+      properties: { answer: { type: 'string', pattern: '^(yes|no)$' } },
+    };
+    expect(validate({ answer: 'yes' }, schema)).toEqual([]);
+    expect(validate({ answer: 'maybe' }, schema)).toHaveLength(1);
+  });
+
+  test('an unsupported pattern is skipped with one warning, not rejected', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const schema = {
+      type: 'object',
+      properties: { answer: { type: 'string', pattern: '\\p{Greek}+' } },
+    };
+    expect(validate({ answer: 'anything' }, schema)).toEqual([]);
+    expect(validate({ answer: 'anything' }, schema)).toEqual([]);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]?.[0]).toContain('unsupported RE2 syntax');
+    warn.mockRestore();
+  });
+
+  test('maxLength is terminal for its property', () => {
+    const schema = {
+      type: 'object',
+      properties: {
+        answer: { type: 'string', maxLength: 3, pattern: '^\\d+$' },
+      },
+    };
+    // Only the length error: the pattern check never runs on an oversized
+    // string, so the work is one comparison rather than a scan proportional
+    // to attacker-chosen length.
+    const errors = validate({ answer: 'abcdefgh' }, schema);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]?.message).toContain('at most 3');
   });
 });
