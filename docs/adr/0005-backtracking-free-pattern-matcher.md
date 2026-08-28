@@ -42,12 +42,22 @@ model faithfully. Unsupported constructs — among them `\p{…}`, `(?i)`, POSIX
 classes, named groups, lookarounds, `\A`, `\z`, `\Q…\E`, `\x{…}`, `\a`, octal
 and backreference escapes such as `\101`, negated class escapes inside a
 character class (`[\S]`, which is set subtraction the range representation
-cannot express; `[^\s]` compiles), and lone surrogates — still return no matcher
-and still fail open. Three narrower refusals round the list out: a quantifier
-may not be applied to an anchor (`^*`), a character class may not open with `:`
-(the POSIX form's prefix), and groups may not nest deeper than 200. Beyond
-those, and beyond RE2-only escapes of the same families (`\pL`, `\P{…}`, `\C`),
-every pattern the parser refuses is one RE2 itself rejects.
+cannot express; where the escape is the class's only member, `[^\s]` is the
+rewrite), and lone surrogates — still return no matcher and still fail open.
+
+Four narrower refusals round the list out. A character class may not take `]`
+as its first member (`[]a]`, `[^]a]`), which RE2 reads as a literal `]`;
+escaping it, `[\]a]`, compiles. Nor may it take `:` as its first member
+(`[:abc]`, `[^:abc]`), the POSIX form's prefix. A quantifier may not be applied
+to a zero-width assertion (`^*`, `$*`, `\b*`, `(?:^)*`). Groups may not nest
+deeper than 200. RE2-only escapes from the families already named (`\pL`,
+`\P{…}`, `\C`, `\0`) are refused too.
+
+What is left over is mostly patterns RE2 rejects outright — an operand-less or
+doubled quantifier, unbalanced parentheses, an unterminated class, an inverted
+range. But `src/lib/re2/parser.ts` is the boundary; a list kept in prose is the
+wrong place to look for an exhaustive answer, and this one has read narrower
+than the code before.
 
 Three simplifications follow from answering only "does this match": capturing
 and non-capturing groups compile identically, greedy and lazy repetition accept
@@ -82,8 +92,8 @@ never make a form permanently un-onboardable.
   groups, negated class escapes inside a character class, and a handful of RE2
   escapes — with counted repetition capped at RE2's own maximum of 1000 and,
   beyond that, by the program budget. `SAFE_SUBSET_HINT` in `pattern-policy.ts`
-  puts the same list in front of whoever runs the generator, so the two must be
-  kept in step with the parser.
+  puts this summary, not the Decision's fuller enumeration, in front of whoever
+  runs the generator; both are maintained by hand against the parser.
 - We own a regex matcher. A bug in it produces a wrong 400, not a security
   failure. `src/lib/re2/to-js-source.ts` renders the same AST as JavaScript
   RegExp source purely so the matcher can be differentially fuzzed against the

@@ -57,8 +57,10 @@ export const SAFE_SUBSET_HINT =
   'The matcher supports standard regex syntax, minus constructs it cannot ' +
   'model faithfully: among them Unicode property classes (\\p{...}), inline ' +
   'flags ((?i)), POSIX classes ([[:alpha:]]), named groups, lookarounds, ' +
-  'negated class escapes inside a character class ([\\S]; write [^\\s] ' +
-  'instead), and escapes such as \\a \\A \\z \\Q...\\E \\x{...} \\101. ' +
+  'negated class escapes inside a character class ([\\S]; where the escape is ' +
+  "the class's only member, [^\\s] is the rewrite), a character class whose " +
+  'first member is ] or : ([]a], [:abc]; escape it, [\\]a]), and escapes such ' +
+  'as \\a \\A \\z \\Q...\\E \\x{...} \\101. ' +
   "Counted repetition is capped at RE2's own maximum of 1000, and a pattern " +
   'whose repetition expands past the program budget is refused too. ' +
   'Simplify the pattern on the Google Form, or pass ' +
@@ -85,8 +87,10 @@ export function assertDeployablePatterns(
   if (options.allowUnevaluable) {
     console.warn(
       `Warning: form ${formId} contains patterns the matcher cannot evaluate:\n${details}\n` +
-        'These fields will be checked only by Google. Proceeding because the ' +
-        'definition allows unevaluable patterns.',
+        'These fields will be checked only by Google. Proceeding because ' +
+        'unevaluable patterns are allowed here: --allow-unevaluable-patterns ' +
+        'on the generator, unevaluablePatternsAllowed in the definition for ' +
+        'validate:forms.',
     );
     return;
   }
