@@ -193,6 +193,64 @@ describe('validate — array constraints', () => {
     const errors = validate({ nums: [1, 'two', 3] }, schema);
     expect(errors.some((e) => e.field.startsWith('nums'))).toBe(true);
   });
+
+  test('fails maxItems', () => {
+    const schema = { type: 'object', properties: { tags: { type: 'array', maxItems: 2 } } };
+    const errors = validate({ tags: ['a', 'b', 'c'] }, schema);
+    expect(errors.some((e) => e.field === 'tags')).toBe(true);
+  });
+
+  test('passes maxItems at the cap', () => {
+    const schema = { type: 'object', properties: { tags: { type: 'array', maxItems: 2 } } };
+    expect(validate({ tags: ['a', 'b'] }, schema)).toEqual([]);
+  });
+
+  test('maxItems violation short-circuits per-item scans', () => {
+    const schema = {
+      type: 'object',
+      properties: {
+        tags: {
+          type: 'array',
+          maxItems: 2,
+          uniqueItems: true,
+          items: { type: 'string', enum: ['a', 'b'] },
+        },
+      },
+    };
+    const errors = validate({ tags: ['zzz', 'zzz', 'zzz'] }, schema);
+    expect(errors).toEqual([
+      { field: 'tags', message: 'must have at most 2 item(s)' },
+    ]);
+  });
+});
+
+describe('validate — prototype-chain keys', () => {
+  const schema = {
+    type: 'object',
+    required: ['name'],
+    properties: { name: { type: 'string' } },
+    additionalProperties: false,
+  };
+
+  test('rejects toString as an additional property', () => {
+    const errors = validate(JSON.parse('{"name": "Alice", "toString": "x"}'), schema);
+    expect(errors.some((e) => e.field === 'toString')).toBe(true);
+  });
+
+  test('rejects constructor as an additional property', () => {
+    const errors = validate(JSON.parse('{"name": "Alice", "constructor": "x"}'), schema);
+    expect(errors.some((e) => e.field === 'constructor')).toBe(true);
+  });
+
+  test('required check does not accept prototype keys as present', () => {
+    const protoSchema = {
+      type: 'object',
+      required: ['constructor'],
+      properties: { constructor: { type: 'string' } },
+    };
+    const errors = validate({}, protoSchema);
+    expect(errors).toEqual([{ field: 'constructor', message: 'is required' }]);
+  });
 });
 
 describe('validate — logical combinators', () => {

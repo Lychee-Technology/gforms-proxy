@@ -28,7 +28,8 @@
           ]
         },
         "uniqueItems": true,
-        "minItems": 1
+        "minItems": 1,
+        "maxItems": 10
       },
       "field_2": {
         "title": "Do you find yourself answering the same kinds of customer questions over and over, daily or weekly?",

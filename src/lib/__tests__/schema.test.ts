@@ -74,6 +74,48 @@ describe('buildJsonSchema (no Gemini)', () => {
     expect(prop.enum).toEqual(['Red', 'Green', 'Blue']);
   });
 
+  test('maps checkboxes with maxItems bounded by option count', async () => {
+    const data: RawFormData = {
+      ...BASE_DATA,
+      fields: [
+        {
+          label: 'Toppings',
+          entryId: 'entry.4',
+          typeCode: 4,
+          typeLabel: 'checkboxes',
+          options: ['Cheese', 'Ham', 'Olives'],
+          required: true,
+          validation: null,
+        },
+      ],
+    };
+    const schema = buildJsonSchema(data);
+    const prop = (schema.properties as any).field_1;
+    expect(prop.type).toBe('array');
+    expect(prop.maxItems).toBe(3);
+    expect(prop.minItems).toBe(1);
+  });
+
+  test('checkboxes without options get no maxItems', async () => {
+    const data: RawFormData = {
+      ...BASE_DATA,
+      fields: [
+        {
+          label: 'Anything',
+          entryId: 'entry.5',
+          typeCode: 4,
+          typeLabel: 'checkboxes',
+          options: [],
+          required: false,
+          validation: null,
+        },
+      ],
+    };
+    const schema = buildJsonSchema(data);
+    const prop = (schema.properties as any).field_1;
+    expect(prop.maxItems).toBeUndefined();
+  });
+
   test('applies number validation >= to schema', async () => {
     const data: RawFormData = {
       ...BASE_DATA,
