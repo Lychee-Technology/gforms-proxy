@@ -4,6 +4,7 @@ import {
   assertDeployablePatterns,
   findSchemaPatternIssues,
 } from '../pattern-policy.js';
+import { compilePattern } from '../re2/index.js';
 
 describe('findSchemaPatternIssues', () => {
   test('returns no issues for a clean schema', () => {
@@ -160,6 +161,48 @@ describe('findSchemaPatternIssues — issue #21 patterns are deployable', () => 
         reason: 'pattern too large',
       },
     ]);
+  });
+});
+
+/**
+ * A drift guard for the two hand-maintained mirrors of `parser.ts`'s refusal
+ * paths: `SAFE_SUBSET_HINT` above and ADR 0005's construct list. Both drifted
+ * during development and were caught only by human inspection.
+ *
+ * This pins exactly one direction — the documentation claiming a refusal that
+ * is not real, which is the direction that misleads a form author into
+ * rewriting a pattern that would have compiled. The reverse direction, the
+ * parser refusing something the docs never mention, is not mechanically
+ * checkable from a prose list; ADR 0005 handles it honestly by naming
+ * `src/lib/re2/parser.ts` as the authority rather than the prose.
+ *
+ * If a row here starts failing, the fix is a documentation edit, not a test
+ * edit: either the parser gained support for the construct and both mirrors
+ * should stop listing it, or the parser lost a refusal it should still have.
+ */
+describe('documented refusals — the constructs the docs name are really refused', () => {
+  test.each([
+    ['\\p{L}', 'Unicode property class'],
+    ['(?i)abc', 'inline flags'],
+    ['[[:alpha:]]', 'POSIX class'],
+    ['(?P<x>a)', 'named group'],
+    ['(?=x)', 'lookahead'],
+    ['[\\S]', 'negated class escape inside a character class'],
+    ['[]a]', 'class whose first member is ]'],
+    ['[:abc]', 'class whose first member is :'],
+    ['\\a', 'bell escape'],
+    ['\\Aabc', 'text-start anchor'],
+    ['abc\\z', 'text-end anchor'],
+    ['\\Qa.b\\E', 'literal quoting'],
+    ['\\x{41}', 'braced hex escape'],
+    ['\\101', 'octal or backreference escape'],
+    ['\\C', 'any-byte escape'],
+    ['\\0', 'NUL escape'],
+    ['a{1001}', "repeat count above RE2's maximum of 1000"],
+    ['^*', 'quantified assertion'],
+    ['(?:^)*', 'quantified group wrapping an assertion'],
+  ])('%s (%s) is refused', (pattern) => {
+    expect(compilePattern(pattern).ok).toBe(false);
   });
 });
 

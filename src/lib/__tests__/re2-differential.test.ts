@@ -19,9 +19,35 @@ const rng = (seed: number) => () => {
 };
 
 const ATOMS = ['a', 'b', 'c', '\\d', '\\w', '\\s', '.', '[ab]', '[^a]', '[a-c]', '^', '$', '\\b', '\\B'];
+/**
+ * The atoms on which RE2 and JavaScript-with-`u` agree exactly. `.` and
+ * `\s`/`\S` are absent deliberately — they are the two documented semantic
+ * divergences, so a raw-text oracle would disagree on them by design.
+ */
+const JS_AGREEING_ATOMS = [
+  'a',
+  'b',
+  'c',
+  '\\d',
+  '\\w',
+  '\\D',
+  '\\W',
+  '[ab]',
+  '[^a]',
+  '[a-c]',
+  '[b-d0-9]',
+  '^',
+  '$',
+  '\\b',
+  '\\B',
+];
 const QUANTIFIERS = ['', '', '', '?', '*', '+', '{2}', '{1,2}', '{0,2}', '{2,}'];
 
-const buildPattern = (random: () => number, depth: number): string => {
+const buildPattern = (
+  random: () => number,
+  depth: number,
+  atoms: string[] = ATOMS,
+): string => {
   const pick = <T>(xs: T[]): T => xs[Math.floor(random() * xs.length)] as T;
   const pieces: number = 1 + Math.floor(random() * 4);
   let out = '';
@@ -32,14 +58,14 @@ const buildPattern = (random: () => number, depth: number): string => {
       // Include an empty branch in alternation to test empty patterns (40% of the time).
       const emptyBranch = random() < 0.4;
       if (emptyBranch) {
-        unit = `(?:${buildPattern(random, depth - 1)}|)`;
+        unit = `(?:${buildPattern(random, depth - 1, atoms)}|)`;
       } else {
-        unit = `(?:${buildPattern(random, depth - 1)}|${buildPattern(random, depth - 1)})`;
+        unit = `(?:${buildPattern(random, depth - 1, atoms)}|${buildPattern(random, depth - 1, atoms)})`;
       }
     } else if (depth > 0 && roll < 0.4) {
-      unit = `(?:${buildPattern(random, depth - 1)})`;
+      unit = `(?:${buildPattern(random, depth - 1, atoms)})`;
     } else {
-      unit = pick(ATOMS);
+      unit = pick(atoms);
     }
     // Assertions cannot be quantified, so emit them without quantifiers.
     const isAssertion = unit === '^' || unit === '$' || unit === '\\b' || unit === '\\B';
@@ -47,6 +73,9 @@ const buildPattern = (random: () => number, depth: number): string => {
   }
   return out;
 };
+
+const buildJsAgreeingPattern = (random: () => number, depth: number): string =>
+  buildPattern(random, depth, JS_AGREEING_ATOMS);
 
 const buildInput = (random: () => number): string => {
   const alphabet = 'abc019 \t.\n';
@@ -93,6 +122,71 @@ describe('differential — the matcher agrees with native RegExp over the subset
     // generated here (\B from ATOMS, empty alt from the `(?:X|)` branch), and
     // a renderer mutant emitting \b for \B fails 175 of these pairs.
     expect(hasInfiniteQuantifier).toBe(true);
+  });
+
+  /**
+   * The arm above derives both sides from the same AST, so a mis-parse that
+   * `to-js-source.ts` renders back consistently is invisible to it: it can
+   * only catch a compiler or matcher bug. This arm feeds the original pattern
+   * text to the native engine, so the oracle never passes through our AST and
+   * a parser mis-parse shows up as a disagreement.
+   *
+   * The price is that the generator has to stay inside the subset where RE2
+   * and JavaScript-with-`u` agree exactly, so `.` and `\s`/`\S` are excluded:
+   * RE2's `.` excludes only `\n` (it matches `\r` and U+2028, which JS's `.`
+   * does not), and RE2's `\s` is `[\t\n\f\r ]`, excluding `\v`. Both are real
+   * documented divergences, so including them would report false
+   * disagreements rather than bugs.
+   *
+   * Size discipline is what keeps the run cheap. The oracle backtracks, and
+   * at this sample size the generator does reach ambiguous patterns that cost
+   * it seconds apiece: uncapped, ten pairs out of 96,460 accounted for 16.7 s
+   * of an 18.0 s run. `MAX_ORACLE_PATTERN_LENGTH` drops those, which is a
+   * bound on the oracle's cost, not a filter on any observed disagreement —
+   * there are none at any cap measured.
+   */
+  const MAX_ORACLE_PATTERN_LENGTH = 60;
+
+  test('random pattern/input pairs agree with native RegExp on the raw pattern text', () => {
+    const random = rng(20260828);
+    let checked = 0;
+    let patterns = 0;
+    let rejected = 0;
+    let skipped = 0;
+    for (let k = 0; k < 60000; k++) {
+      const pattern = buildJsAgreeingPattern(random, 2);
+      if (pattern.length > MAX_ORACLE_PATTERN_LENGTH) {
+        skipped++;
+        continue;
+      }
+      const ast = parse(pattern);
+      if (ast === null) {
+        rejected++;
+        continue;
+      }
+      const program = compile(ast);
+      if (program === null) {
+        rejected++;
+        continue;
+      }
+      patterns++;
+      // The pattern text itself, never routed through our AST.
+      const native = new RegExp(pattern, JS_REGEX_FLAGS);
+      for (let j = 0; j < 5; j++) {
+        const input = buildInput(random);
+        expect(
+          { pattern, input, ours: matches(program, input) },
+          `pattern ${pattern} input ${JSON.stringify(input)}`,
+        ).toEqual({ pattern, input, ours: native.test(input) });
+        checked++;
+      }
+    }
+    // Guards against the generator degenerating into all-rejected patterns.
+    // Measured baseline: 195,225 pairs from 39,045 accepted patterns, with 938
+    // rejected by the parser and 20,017 over the length cap. Floor set to ~90%
+    // to catch regressions.
+    expect(checked).toBeGreaterThan(175000);
+    expect(patterns + rejected + skipped).toBe(60000);
   });
 
   test.each([
