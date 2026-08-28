@@ -6,17 +6,17 @@
 
 ## Context
 
-ADR 0002 evaluates a Google Forms (RE2) `pattern` locally only when it is both
-semantically compatible with JavaScript and safe to run on JavaScript's
-backtracking engine. The execution-safety half was a syntactic heuristic: at
-most one repetition, quantifying a single atom, unbounded repetition only
-behind a leading `^`, and no alternation.
+ADR 0002 originally evaluated a Google Forms (RE2) `pattern` locally only when
+it was both semantically compatible with JavaScript and safe to run on
+JavaScript's backtracking engine. The execution-safety half was a syntactic
+heuristic: at most one repetition, quantifying a single atom, unbounded
+repetition only behind a leading `^`, and no alternation.
 
-The heuristic is far narrower than the danger it guards. `^\d{3}-\d{4}$`,
-`^(yes|no)$` and `[a-z]+@[a-z]+\.[a-z]+` are all refused, and the generator
-will not write a definition containing one, so such a form cannot be onboarded
-at all. The anchor rule is also unsatisfiable for regex `contains` and
-`does_not_contain`, which `schema.ts` emits unanchored.
+The heuristic was far narrower than the danger it guarded. `^\d{3}-\d{4}$`,
+`^(yes|no)$` and `[a-z]+@[a-z]+\.[a-z]+` were all refused, and the generator
+would not write a definition containing one, so such a form could not be
+onboarded at all. The anchor rule was also unsatisfiable for regex `contains`
+and `does_not_contain`, which `schema.ts` emits unanchored.
 
 Widening the heuristic does not scale. The hard case is not a nested
 quantifier but `(?:a|aa)` concatenated thirty times, which is exponential with
@@ -40,8 +40,14 @@ quantifiers, quantified groups and nested quantifiers are all accepted. What
 remains is a purely semantic question — which RE2 constructs the parser can
 model faithfully. Unsupported constructs — among them `\p{…}`, `(?i)`, POSIX
 classes, named groups, lookarounds, `\A`, `\z`, `\Q…\E`, `\x{…}`, `\a`, octal
-and backreference escapes such as `\101`, and lone surrogates — still return no
-matcher and still fail open.
+and backreference escapes such as `\101`, negated class escapes inside a
+character class (`[\S]`, which is set subtraction the range representation
+cannot express; `[^\s]` compiles), and lone surrogates — still return no matcher
+and still fail open. Three narrower refusals round the list out: a quantifier
+may not be applied to an anchor (`^*`), a character class may not open with `:`
+(the POSIX form's prefix), and groups may not nest deeper than 200. Beyond
+those, and beyond RE2-only escapes of the same families (`\pL`, `\P{…}`, `\C`),
+every pattern the parser refuses is one RE2 itself rejects.
 
 Three simplifications follow from answering only "does this match": capturing
 and non-capturing groups compile identically, greedy and lazy repetition accept
@@ -59,9 +65,9 @@ like `maxItems`, it is terminal for its property, so an oversized string never
 reaches the pattern check. A request body size limit would bound the remaining
 case where a schema carries no `maxLength`; it is tracked separately.
 
-`gen-field-mapping --allow-unevaluable-patterns` records
-`unevaluablePatternsAllowed: true` in the definition, which turns the generator
-and `validate:forms` failure into a warning. Some RE2 syntax will remain
+`gen-field-mapping --allow-unevaluable-patterns` turns the generator's failure
+into a warning and records `unevaluablePatternsAllowed: true` in the definition,
+which does the same for `validate:forms`. Some RE2 syntax will remain
 unsupported however wide the matcher grows, and a UX-layer limitation should
 never make a form permanently un-onboardable.
 
@@ -71,10 +77,13 @@ never make a form permanently un-onboardable.
   no shape-dependent cliff. Exposure to a mis-authored regex is bounded by
   construction rather than by a syntactic guess.
 - The subset a form author must respect is explainable in one sentence:
-  standard regex syntax, minus Unicode property classes, inline flags, POSIX
-  classes, lookarounds, named groups, and a handful of RE2 escapes — with
-  counted repetition capped at RE2's own maximum of 1000 and, beyond that, by
-  the program budget.
+  standard regex syntax, minus the constructs the Decision above lists — chiefly
+  Unicode property classes, inline flags, POSIX classes, lookarounds, named
+  groups, negated class escapes inside a character class, and a handful of RE2
+  escapes — with counted repetition capped at RE2's own maximum of 1000 and,
+  beyond that, by the program budget. `SAFE_SUBSET_HINT` in `pattern-policy.ts`
+  puts the same list in front of whoever runs the generator, so the two must be
+  kept in step with the parser.
 - We own a regex matcher. A bug in it produces a wrong 400, not a security
   failure. `src/lib/re2/to-js-source.ts` renders the same AST as JavaScript
   RegExp source purely so the matcher can be differentially fuzzed against the
