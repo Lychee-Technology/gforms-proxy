@@ -26,8 +26,13 @@ export class FormParseError extends Error {
   }
 }
 
+// Anchored at both ends: nothing may follow `viewform` except a query string or
+// a fragment. An unanchored tail let path-traversal URLs through — `fetch`
+// collapses the dot segments, so the URL that passed validation and the URL
+// actually fetched could name different paths (or a different form than
+// `extractFormId` reports). See issue #8.
 const GOOGLE_FORMS_REGEX =
-  /^https:\/\/docs\.google\.com\/forms\/d\/e\/[a-zA-Z0-9_-]+\/viewform/;
+  /^https:\/\/docs\.google\.com\/forms\/d\/e\/[a-zA-Z0-9_-]+\/viewform(?:[?#]\S*)?$/;
 
 export function validateFormUrl(url: string): void {
   if (!GOOGLE_FORMS_REGEX.test(url)) {
