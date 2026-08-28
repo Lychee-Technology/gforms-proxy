@@ -126,6 +126,15 @@ function validateProperty(
     if (typeof minItems === 'number' && value.length < minItems) {
       errors.push({ field, message: `must have at least ${minItems} item(s)` });
     }
+    const maxItems = schema['maxItems'];
+    if (typeof maxItems === 'number' && value.length > maxItems) {
+      // Terminal, like a type mismatch: returning skips the per-item scans
+      // below and any allOf/anyOf, because an oversized array is already
+      // invalid and scanning it would burn CPU proportional to
+      // attacker-chosen length.
+      errors.push({ field, message: `must have at most ${maxItems} item(s)` });
+      return;
+    }
     if (schema['uniqueItems'] === true) {
       const seen = new Set<string>();
       let hasDupe = false;
@@ -195,9 +204,11 @@ export function validate(
   const required = schema['required'];
   const additionalProperties = schema['additionalProperties'];
 
+  // Object.hasOwn, not `in`: `in` walks the prototype chain, so keys like
+  // "toString" or "constructor" would count as present / allowed.
   if (Array.isArray(required)) {
     for (const key of required as string[]) {
-      if (!(key in data)) {
+      if (!Object.hasOwn(data, key)) {
         errors.push({ field: key, message: 'is required' });
       }
     }
@@ -205,7 +216,7 @@ export function validate(
 
   if (additionalProperties === false && isObject(properties)) {
     for (const key of Object.keys(data)) {
-      if (!(key in (properties as object))) {
+      if (!Object.hasOwn(properties, key)) {
         errors.push({ field: key, message: 'additional property not allowed' });
       }
     }
@@ -213,7 +224,7 @@ export function validate(
 
   if (isObject(properties)) {
     for (const [key, propSchema] of Object.entries(properties)) {
-      if (!(key in data)) continue;
+      if (!Object.hasOwn(data, key)) continue;
       if (isObject(propSchema)) {
         validateProperty(key, data[key], propSchema, errors);
       }

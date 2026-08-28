@@ -12,7 +12,9 @@ The submission endpoint validates request bodies against each form's JSON Schema
 
 Write a purpose-built validator (`src/lib/validator.ts`) with no external dependencies, targeting the keyword subset `schema.ts` emits. It currently validates:
 
-`type`, `required`, `enum`, `const`, `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `minLength`, `maxLength`, `format` (email and uri only), `pattern`, `minItems`, `uniqueItems`, `allOf`, `not`, `anyOf`
+`type`, `required`, `enum`, `const`, `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `minLength`, `maxLength`, `format` (email and uri only), `pattern`, `minItems`, `maxItems`, `uniqueItems`, `allOf`, `not`, `anyOf`
+
+Two keywords are terminal for their property: a `type` mismatch stops further checks on that value, and a `maxItems` violation stops before the `uniqueItems` dedupe, per-item `items` scan, and any `allOf`/`anyOf` combinators, so an oversized array costs one length comparison instead of work proportional to attacker-chosen length.
 
 Two known gaps where the generator emits constructs the validator does not fully check:
 

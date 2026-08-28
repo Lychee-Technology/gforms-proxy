@@ -234,6 +234,7 @@ const buildFieldPropertySchema = (field: FieldSchemaDetail): JsonSchemaProperty 
           items: { type: 'string', ...(hasOptions ? { enum: field.options } : {}) },
           uniqueItems: true,
           ...(field.required ? { minItems: 1 } : {}),
+          ...(hasOptions ? { maxItems: field.options.length } : {}),
         },
         field,
       );
