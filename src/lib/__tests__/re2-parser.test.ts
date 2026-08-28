@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { parse } from '../re2/parser.js';
+import { parse, RE2_MAX_REPEAT } from '../re2/parser.js';
 
 describe('parse — structure', () => {
   test('a literal becomes a char node', () => {
@@ -241,5 +241,78 @@ describe('parse — character classes', () => {
     '[\\p{L}]',
   ])('%s returns null', (pattern) => {
     expect(parse(pattern)).toBeNull();
+  });
+});
+
+describe('parse — quantifiers', () => {
+  const a = { kind: 'char', codePoint: 0x61 };
+
+  test('* + ? map to bounds', () => {
+    expect(parse('a*')).toEqual({ kind: 'repeat', node: a, min: 0, max: null });
+    expect(parse('a+')).toEqual({ kind: 'repeat', node: a, min: 1, max: null });
+    expect(parse('a?')).toEqual({ kind: 'repeat', node: a, min: 0, max: 1 });
+  });
+
+  test('counted repetitions map to bounds', () => {
+    expect(parse('a{2}')).toEqual({ kind: 'repeat', node: a, min: 2, max: 2 });
+    expect(parse('a{2,}')).toEqual({ kind: 'repeat', node: a, min: 2, max: null });
+    expect(parse('a{1,3}')).toEqual({ kind: 'repeat', node: a, min: 1, max: 3 });
+    expect(parse('a{0}')).toEqual({ kind: 'repeat', node: a, min: 0, max: 0 });
+  });
+
+  test('a lazy marker is accepted and discarded — acceptance is identical', () => {
+    expect(parse('a+?')).toEqual(parse('a+'));
+    expect(parse('a{1,3}?')).toEqual(parse('a{1,3}'));
+  });
+
+  test('a group can be quantified', () => {
+    expect(parse('(?:ab)+')).toEqual({
+      kind: 'repeat',
+      node: parse('ab'),
+      min: 1,
+      max: null,
+    });
+  });
+
+  test('a brace form outside RE2 grammar is literal text', () => {
+    expect(parse('a{,2}')).toEqual({
+      kind: 'concat',
+      nodes: [
+        a,
+        { kind: 'char', codePoint: 0x7b },
+        { kind: 'char', codePoint: 0x2c },
+        { kind: 'char', codePoint: 0x32 },
+        { kind: 'char', codePoint: 0x7d },
+      ],
+    });
+    // Leading zeroes are not RE2's decimal grammar.
+    expect(parse('a{01}')).not.toBeNull();
+    expect((parse('a{01}') as { kind: string }).kind).toBe('concat');
+  });
+
+  test('RE2 caps a repeat count at 1000', () => {
+    expect(RE2_MAX_REPEAT).toBe(1000);
+    expect(parse('a{1000}')).not.toBeNull();
+  });
+
+  test.each([
+    'a{1001}',
+    'a{1,1001}',
+    'a{1,999999999999999999999999999}',
+    'a{3,2}',
+    '*a',
+    '+a',
+    '{2}a',
+    'a**',
+    'a+*',
+    '^*',
+  ])('%s returns null', (pattern) => {
+    expect(parse(pattern)).toBeNull();
+  });
+
+  test('patterns from issue #21 now parse', () => {
+    expect(parse('^\\d{3}-\\d{4}$')).not.toBeNull();
+    expect(parse('^(yes|no)$')).not.toBeNull();
+    expect(parse('[a-z]+@[a-z]+\\.[a-z]+')).not.toBeNull();
   });
 });

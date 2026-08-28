@@ -11,6 +11,15 @@
  */
 import type { CharRange, Node } from './ast.js';
 
+/** RE2 rejects a repeat count above this, so a Google Form cannot contain one. */
+export const RE2_MAX_REPEAT = 1000;
+
+// RE2 decimal counts are 0 or a nonzero digit followed by digits; a brace form
+// with a leading zero is literal text rather than a quantifier.
+const BRACE = /^\{(0|[1-9]\d*)(?:,(0|[1-9]\d*)?)?\}/;
+
+type Quantifier = { min: number; max: number | null };
+
 const CP = {
   dollar: 0x24,
   lparen: 0x28,
@@ -73,6 +82,7 @@ class Parser {
   private readonly cps: number[];
   private i = 0;
   private depth = 0;
+  private failed = false;
 
   constructor(pattern: string) {
     // Iterating the string yields code points; a lone surrogate yields its own
@@ -82,6 +92,7 @@ class Parser {
 
   parse(): Node | null {
     const node = this.parseAlternation();
+    if (this.failed) return null;
     // A leftover character means an unbalanced ')' or a construct the atom
     // parser stopped on.
     if (node === null || this.i < this.cps.length) return null;
@@ -111,7 +122,9 @@ class Parser {
       if (cp === undefined || cp === CP.pipe || cp === CP.rparen) break;
       const atom = this.parseAtom();
       if (atom === null) return null;
-      nodes.push(atom);
+      const repeated = this.applyQuantifier(atom);
+      if (repeated === null) return null;
+      nodes.push(repeated);
     }
     if (nodes.length === 0) return { kind: 'empty' };
     return nodes.length === 1 ? (nodes[0] as Node) : { kind: 'concat', nodes };
@@ -139,9 +152,16 @@ class Parser {
       case CP.star:
       case CP.plus:
       case CP.question:
-      case CP.lbrace:
-        // Quantifiers arrive in Task 3.
+        // A repetition operator with no operand is an RE2 error.
         return null;
+      case CP.lbrace: {
+        const save = this.i;
+        const quantifier = this.readQuantifier();
+        this.i = save;
+        if (quantifier !== null) return null; // repetition with no operand
+        this.i++;
+        return { kind: 'char', codePoint: CP.lbrace };
+      }
       default:
         if (isSurrogate(cp)) return null;
         this.i++;
@@ -295,6 +315,63 @@ class Parser {
       return { kind: 'char', codePoint: next };
     }
     // \b inside a class, \p, \A and friends.
+    return null;
+  }
+
+  private applyQuantifier(atom: Node): Node | null {
+    const spec = this.readQuantifier();
+    if (spec === null) return atom;
+    // `^*` and friends: RE2's treatment of a quantified assertion is not worth
+    // modelling, and refusing fails open.
+    if (atom.kind === 'assert') return null;
+    // A single trailing '?' is the lazy marker. Greedy and lazy accept the
+    // same language, so it is consumed and discarded. Anything further is an
+    // RE2 error ("double repeat").
+    if (this.peek() === CP.question) this.i++;
+    if (this.readQuantifier() !== null) return null;
+    return { kind: 'repeat', node: atom, min: spec.min, max: spec.max };
+  }
+
+  /**
+   * Consumes a quantifier and returns its bounds, or null when the next token
+   * is not one. Returns null without consuming for a brace form outside RE2's
+   * decimal grammar, which is literal text. An out-of-range or inverted bound
+   * throws the whole parse away by returning a sentinel the caller cannot use;
+   * it is reported as an unsupported pattern.
+   */
+  private readQuantifier(): Quantifier | null {
+    const cp = this.peek();
+    if (cp === CP.star) {
+      this.i++;
+      return { min: 0, max: null };
+    }
+    if (cp === CP.plus) {
+      this.i++;
+      return { min: 1, max: null };
+    }
+    if (cp === CP.question) {
+      this.i++;
+      return { min: 0, max: 1 };
+    }
+    if (cp !== CP.lbrace) return null;
+
+    const rest = String.fromCodePoint(...this.cps.slice(this.i));
+    const match = BRACE.exec(rest);
+    if (match === null) return null;
+
+    const min = Number(match[1]);
+    const hasComma = match[0].includes(',');
+    const max = hasComma ? (match[2] === undefined ? null : Number(match[2])) : min;
+    if (min > RE2_MAX_REPEAT) return this.fail();
+    if (max !== null && (max > RE2_MAX_REPEAT || max < min)) return this.fail();
+
+    this.i += [...match[0]].length;
+    return { min, max };
+  }
+
+  /** Marks the parse as failed; parse() returns null once the flag is set. */
+  private fail(): null {
+    this.failed = true;
     return null;
   }
 }
