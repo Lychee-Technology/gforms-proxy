@@ -32,7 +32,7 @@ describe('validateRegisteredForms', () => {
         'unsafe-form-two',
         definitionWithSchema('unsafe-form-two', {
           properties: {
-            answer: { allOf: [{ not: { pattern: '(a+)+' } }] },
+            answer: { allOf: [{ not: { pattern: '[[:alpha:]]' } }] },
           },
         }),
       ],
@@ -41,10 +41,10 @@ describe('validateRegisteredForms', () => {
     expect(() => validateRegisteredForms(definitions)).toThrow(
       'Registered form validation failed:\n' +
         'Form unsafe-form-one contains patterns that cannot be deployed:\n' +
-        '- $.properties.code.pattern: outside safe RE2 subset: \\p{L}\n' +
+        '- $.properties.code.pattern: unsupported RE2 syntax: \\p{L}\n' +
         `${SAFE_SUBSET_HINT}\n\n` +
         'Form unsafe-form-two contains patterns that cannot be deployed:\n' +
-        '- $.properties.answer.allOf[0].not.pattern: outside safe RE2 subset: (a+)+\n' +
+        '- $.properties.answer.allOf[0].not.pattern: unsupported RE2 syntax: [[:alpha:]]\n' +
         SAFE_SUBSET_HINT,
     );
   });

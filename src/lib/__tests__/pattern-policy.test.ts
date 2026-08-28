@@ -34,18 +34,18 @@ describe('findSchemaPatternIssues', () => {
       {
         path: '$.properties.code.pattern',
         pattern: '\\p{L}',
-        reason: 'outside safe RE2 subset',
+        reason: 'unsupported RE2 syntax',
       },
       {
         path: '$.properties.code.allOf[0].not.pattern',
         pattern: '[a-z',
-        reason: 'outside safe RE2 subset',
+        reason: 'unsupported RE2 syntax',
       },
     ]);
     expect(() => assertDeployablePatterns('nested-form', schema)).toThrow(
       'Form nested-form contains patterns that cannot be deployed:\n' +
-        '- $.properties.code.pattern: outside safe RE2 subset: \\p{L}\n' +
-        '- $.properties.code.allOf[0].not.pattern: outside safe RE2 subset: [a-z\n' +
+        '- $.properties.code.pattern: unsupported RE2 syntax: \\p{L}\n' +
+        '- $.properties.code.allOf[0].not.pattern: unsupported RE2 syntax: [a-z\n' +
         SAFE_SUBSET_HINT,
     );
   });
@@ -57,30 +57,24 @@ describe('findSchemaPatternIssues', () => {
       }),
     ).toThrow(
       'Form multiline-form contains patterns that cannot be deployed:\n' +
-        '- $.pattern: outside safe RE2 subset: first\\r\\nsecond\\p{L}',
+        '- $.pattern: unsupported RE2 syntax: first\\r\\nsecond\\p{L}',
     );
   });
 
-  test('reports a translated pattern that JavaScript cannot compile', () => {
+  test('reports an unbalanced group as unsupported syntax', () => {
     expect(findSchemaPatternIssues({ pattern: '(' })).toEqual([
       {
         path: '$.pattern',
         pattern: '(',
-        reason: 'uncompilable translated pattern',
+        reason: 'unsupported RE2 syntax',
       },
     ]);
   });
 
-  test('reports ambiguous alternation as outside the safe subset', () => {
+  test('accepts ambiguous alternation the old safe subset refused', () => {
     const pattern = '^' + '(?:a|aa)'.repeat(30) + 'b$';
 
-    expect(findSchemaPatternIssues({ pattern })).toEqual([
-      {
-        path: '$.pattern',
-        pattern,
-        reason: 'outside safe RE2 subset',
-      },
-    ]);
+    expect(findSchemaPatternIssues({ pattern })).toEqual([]);
   });
 
   test('ignores non-string pattern values', () => {
@@ -100,7 +94,7 @@ describe('findSchemaPatternIssues', () => {
       {
         path: '$.pattern',
         pattern: '\\p{L}',
-        reason: 'outside safe RE2 subset',
+        reason: 'unsupported RE2 syntax',
       },
     ]);
   });
@@ -120,12 +114,12 @@ describe('findSchemaPatternIssues', () => {
       {
         path: '$.properties.first.pattern',
         pattern: '\\p{L}',
-        reason: 'outside safe RE2 subset',
+        reason: 'unsupported RE2 syntax',
       },
       {
         path: '$.properties.second.pattern',
         pattern: '\\p{L}',
-        reason: 'outside safe RE2 subset',
+        reason: 'unsupported RE2 syntax',
       },
     ]);
   });
@@ -141,5 +135,30 @@ describe('findSchemaPatternIssues', () => {
     findSchemaPatternIssues(schema);
 
     expect(schema).toEqual(before);
+  });
+});
+
+describe('findSchemaPatternIssues — issue #21 patterns are deployable', () => {
+  test.each(['^\\d{3}-\\d{4}$', '^(yes|no)$', '[a-z]+@[a-z]+\\.[a-z]+', '\\d+'])(
+    '%s produces no issue',
+    (pattern) => {
+      expect(findSchemaPatternIssues({ pattern })).toEqual([]);
+    },
+  );
+
+  test('unsupported syntax is reported with its reason', () => {
+    expect(findSchemaPatternIssues({ pattern: '\\p{L}+' })).toEqual([
+      { path: '$.pattern', pattern: '\\p{L}+', reason: 'unsupported RE2 syntax' },
+    ]);
+  });
+
+  test('an oversized expansion is reported with its reason', () => {
+    expect(findSchemaPatternIssues({ pattern: '(?:a{1000}){1000}' })).toEqual([
+      {
+        path: '$.pattern',
+        pattern: '(?:a{1000}){1000}',
+        reason: 'pattern too large',
+      },
+    ]);
   });
 });

@@ -49,9 +49,12 @@ afterEach(() => {
 });
 
 describe('main() generated pattern policy', () => {
-  test('rejects an unsafe generated regex before writing the definition', async () => {
+  test('rejects an unsupported generated regex before writing the definition', async () => {
     const formId = 'unsafePatternForm123';
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(htmlForPattern('(a+)+'))));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(htmlForPattern('\\p{L}'))),
+    );
 
     await expect(
       main([
@@ -61,7 +64,7 @@ describe('main() generated pattern policy', () => {
         `https://docs.google.com/forms/d/e/${formId}/viewform`,
       ]),
     ).rejects.toThrow(
-      `Form ${formId} contains patterns that cannot be deployed:\n- $.properties.field_1.pattern: outside safe RE2 subset: ^(?:(a+)+)$`,
+      `Form ${formId} contains patterns that cannot be deployed:\n- $.properties.field_1.pattern: unsupported RE2 syntax: ^(?:\\p{L})$`,
     );
     expect(existsSync(definitionPath(formId))).toBe(false);
   });

@@ -1,14 +1,9 @@
-import {
-  JS_REGEX_FLAGS,
-  toJavaScriptRegexSource,
-} from './re2-compat.js';
+import { compilePattern, type CompileFailure } from './re2/index.js';
 
 export interface SchemaPatternIssue {
   path: string;
   pattern: string;
-  reason:
-    | 'outside safe RE2 subset'
-    | 'uncompilable translated pattern';
+  reason: CompileFailure;
 }
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> => {
@@ -42,24 +37,9 @@ export function findSchemaPatternIssues(
       for (const [key, child] of Object.entries(value)) {
         const childPath = propertyPath(path, key);
         if (key === 'pattern' && typeof child === 'string') {
-          const source = toJavaScriptRegexSource(child);
-          if (source === null) {
-            issues.push({
-              path: childPath,
-              pattern: child,
-              reason: 'outside safe RE2 subset',
-            });
-          } else {
-            try {
-              new RegExp(source, JS_REGEX_FLAGS);
-            } catch (error) {
-              if (!(error instanceof SyntaxError)) throw error;
-              issues.push({
-                path: childPath,
-                pattern: child,
-                reason: 'uncompilable translated pattern',
-              });
-            }
+          const result = compilePattern(child);
+          if (!result.ok) {
+            issues.push({ path: childPath, pattern: child, reason: result.reason });
           }
         }
         visit(child, childPath);
@@ -74,10 +54,13 @@ export function findSchemaPatternIssues(
 }
 
 export const SAFE_SUBSET_HINT =
-  'Rephrase the pattern to fit the safe subset: at most one repetition, ' +
-  'targeting a single character or class; a leading ^ before unbounded ' +
-  'repetition; no alternation (|) — or split the question. ' +
-  'See docs/adr/0002 and issue #21.';
+  'The matcher supports standard regex syntax except Unicode property ' +
+  'classes (\\p{...}), inline flags ((?i)), POSIX classes ([[:alpha:]]), ' +
+  'named groups, lookarounds, and the \\A \\z \\Q...\\E \\x{...} escapes; a ' +
+  'pattern whose repetition expands past the program budget is refused too. ' +
+  'Simplify the pattern on the Google Form, or pass ' +
+  '--allow-unevaluable-patterns to onboard it with that field checked only ' +
+  'by Google. See docs/adr/0005 and issue #21.';
 
 export function assertDeployablePatterns(formId: string, schema: unknown): void {
   const issues = findSchemaPatternIssues(schema);

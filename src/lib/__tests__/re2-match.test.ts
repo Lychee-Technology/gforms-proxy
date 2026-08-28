@@ -81,6 +81,55 @@ describe('matches — constructs', () => {
     expect(test_('^\u{1F600}+$', '\u{1F600}\u{1F600}')).toBe(true);
   });
 
+  test('a quantified dot counts code points', () => {
+    expect(test_('^.{2}$', '\u{1F600}')).toBe(false);
+    expect(test_('^.{2}$', '\u{1F600}\u{1F600}')).toBe(true);
+  });
+
+  test('\\S\\S requires two code points', () => {
+    expect(test_('^\\S\\S$', '\u{1F600}')).toBe(false);
+    expect(test_('^\\S\\S$', '\u{1F600}\u{1F600}')).toBe(true);
+  });
+
+  test('a negated class consumes a whole code point atomically', () => {
+    expect(test_('^[^x][^x]$', '\u{1F600}')).toBe(false);
+    expect(test_('^[^x][^x]$', '\u{1F600}\u{1F600}')).toBe(true);
+  });
+
+  test('a dot inside a character class is a literal dot', () => {
+    expect(test_('^[.]$', '.')).toBe(true);
+    expect(test_('^[.]$', 'x')).toBe(false);
+  });
+
+  test('a pipe inside a character class is a literal pipe', () => {
+    expect(test_('^[|]$', '|')).toBe(true);
+    expect(test_('^[|]$', 'x')).toBe(false);
+  });
+
+  test('escaped ASCII punctuation matches that punctuation', () => {
+    expect(test_('^\\-\\!$', '-!')).toBe(true);
+    expect(test_('^\\-\\!$', '-x')).toBe(false);
+  });
+
+  test.each(['{01}', '{1,02}', '{01,2}'])(
+    'a%s is literal text rather than a counted repetition',
+    (braces) => {
+      const literal = `a${braces}`;
+      expect(test_(`^${literal}$`, literal)).toBe(true);
+      expect(test_(`^${literal}$`, 'a')).toBe(false);
+    },
+  );
+
+  test('an unterminated brace is a literal brace', () => {
+    expect(test_('^a{$', 'a{')).toBe(true);
+    expect(test_('^a{$', 'a')).toBe(false);
+  });
+
+  test('a 1000-count repeat matches exactly 1000 repetitions', () => {
+    expect(test_('^a{1000}$', 'a'.repeat(1000))).toBe(true);
+    expect(test_('^a{1000}$', 'a'.repeat(999))).toBe(false);
+  });
+
   test('a nullable repetition body terminates', () => {
     expect(test_('^(?:a?)*$', 'aaa')).toBe(true);
     expect(test_('^(?:a?)*$', 'b')).toBe(false);

@@ -99,6 +99,7 @@ describe('parse — RE2 semantics that differ from JavaScript', () => {
 
   test('control and hex escapes resolve to code points', () => {
     expect(parse('\\t')).toEqual({ kind: 'char', codePoint: 0x09 });
+    expect(parse('\\n')).toEqual({ kind: 'char', codePoint: 0x0a });
     expect(parse('\\v')).toEqual({ kind: 'char', codePoint: 0x0b });
     expect(parse('\\x41')).toEqual({ kind: 'char', codePoint: 0x41 });
   });
@@ -107,6 +108,7 @@ describe('parse — RE2 semantics that differ from JavaScript', () => {
     expect(parse('\\-')).toEqual({ kind: 'char', codePoint: 0x2d });
     expect(parse('\\|')).toEqual({ kind: 'char', codePoint: 0x7c });
     expect(parse('\\\\')).toEqual({ kind: 'char', codePoint: 0x5c });
+    expect(parse('\\!')).toEqual({ kind: 'char', codePoint: 0x21 });
   });
 
   test('an unmatched closing brace or bracket is a literal', () => {
