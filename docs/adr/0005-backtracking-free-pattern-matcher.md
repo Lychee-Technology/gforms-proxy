@@ -73,7 +73,7 @@ of 4000 instructions caps the compiled program, so `a{1000}` compiles while
 Matching is linear in the input, which the schema's `maxLength` now bounds:
 like `maxItems`, it is terminal for its property, so an oversized string never
 reaches the pattern check. A request body size limit would bound the remaining
-case where a schema carries no `maxLength`; it is tracked separately.
+case where a schema carries no `maxLength`; it is tracked separately (#29).
 
 `gen-field-mapping --allow-unevaluable-patterns` turns the generator's failure
 into a warning and records `unevaluablePatternsAllowed: true` in the definition,
