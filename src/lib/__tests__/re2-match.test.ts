@@ -65,13 +65,13 @@ describe('matches — constructs', () => {
     expect(test_('^\\s$', ' ')).toBe(true);
     expect(test_('^\\s$', '\t')).toBe(true);
     expect(test_('^\\s$', '\v')).toBe(false);
-    expect(test_('^\\s$', ' ')).toBe(false);
-    expect(test_('^\\S$', ' ')).toBe(true);
+    expect(test_('^\\s$', '\u00A0')).toBe(false);
+    expect(test_('^\\S$', '\u00A0')).toBe(true);
   });
 
   test('dot matches \\r and U+2028 but not \\n', () => {
     expect(test_('^.$', '\r')).toBe(true);
-    expect(test_('^.$', ' ')).toBe(true);
+    expect(test_('^.$', '\u2028')).toBe(true);
     expect(test_('^.$', '\n')).toBe(false);
   });
 
@@ -84,6 +84,10 @@ describe('matches — constructs', () => {
   test('a nullable repetition body terminates', () => {
     expect(test_('^(?:a?)*$', 'aaa')).toBe(true);
     expect(test_('^(?:a?)*$', 'b')).toBe(false);
+  });
+
+  test('an empty-body epsilon cycle terminates', () => {
+    expect(test_('^(?:){1,}$', '')).toBe(true);
   });
 
   test('a{0} matches the empty string', () => {
