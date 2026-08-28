@@ -11,7 +11,9 @@ export function validateRegisteredForms(
 
   for (const [formId, definition] of definitions) {
     try {
-      assertDeployablePatterns(formId, definition.schema);
+      assertDeployablePatterns(formId, definition.schema, {
+        allowUnevaluable: definition.unevaluablePatternsAllowed === true,
+      });
     } catch (error) {
       failures.push(error instanceof Error ? error.message : String(error));
     }

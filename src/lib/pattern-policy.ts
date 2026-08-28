@@ -62,7 +62,11 @@ export const SAFE_SUBSET_HINT =
   '--allow-unevaluable-patterns to onboard it with that field checked only ' +
   'by Google. See docs/adr/0005 and issue #21.';
 
-export function assertDeployablePatterns(formId: string, schema: unknown): void {
+export function assertDeployablePatterns(
+  formId: string,
+  schema: unknown,
+  options: { allowUnevaluable?: boolean } = {},
+): void {
   const issues = findSchemaPatternIssues(schema);
   if (issues.length === 0) return;
 
@@ -74,6 +78,16 @@ export function assertDeployablePatterns(formId: string, schema: unknown): void 
       return `- ${path}: ${reason}: ${displayPattern}`;
     })
     .join('\n');
+
+  if (options.allowUnevaluable) {
+    console.warn(
+      `Warning: form ${formId} contains patterns the matcher cannot evaluate:\n${details}\n` +
+        'These fields will be checked only by Google. Proceeding because the ' +
+        'definition allows unevaluable patterns.',
+    );
+    return;
+  }
+
   throw new Error(
     `Form ${formId} contains patterns that cannot be deployed:\n${details}\n${SAFE_SUBSET_HINT}`,
   );

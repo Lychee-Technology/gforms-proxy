@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 import packageJson from '../../package.json' with { type: 'json' };
 import registry from '../../src/forms/registry.js';
 import type { FormDefinition } from '../../src/lib/types.js';
@@ -58,4 +58,29 @@ test('deployment scripts validate forms before Wrangler runs', () => {
     'pnpm validate:forms && wrangler deploy',
   );
   expect(packageJson.scripts).not.toHaveProperty('predeploy');
+});
+
+describe('validateRegisteredForms — unevaluablePatternsAllowed', () => {
+  const definition = (extra: Record<string, unknown>) =>
+    ({
+      formId: 'f',
+      submissionUrl: 'https://example.com',
+      schema: { properties: { a: { pattern: '\\p{L}+' } } },
+      fieldMap: {},
+      ...extra,
+    }) as unknown as FormDefinition;
+
+  test('fails on an unevaluable pattern without the flag', () => {
+    expect(() => validateRegisteredForms(new Map([['f', definition({})]]))).toThrow();
+  });
+
+  test('passes when the definition records the allowance', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(() =>
+      validateRegisteredForms(
+        new Map([['f', definition({ unevaluablePatternsAllowed: true })]]),
+      ),
+    ).not.toThrow();
+    warn.mockRestore();
+  });
 });

@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 import {
   SAFE_SUBSET_HINT,
   assertDeployablePatterns,
@@ -160,5 +160,36 @@ describe('findSchemaPatternIssues — issue #21 patterns are deployable', () => 
         reason: 'pattern too large',
       },
     ]);
+  });
+});
+
+describe('assertDeployablePatterns — override', () => {
+  const schema = { properties: { a: { pattern: '\\p{L}+' } } };
+
+  test('throws without the allowance', () => {
+    expect(() => assertDeployablePatterns('form1', schema)).toThrow(
+      /unsupported RE2 syntax/,
+    );
+  });
+
+  test('warns and proceeds with the allowance', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(() =>
+      assertDeployablePatterns('form1', schema, { allowUnevaluable: true }),
+    ).not.toThrow();
+    const message = warn.mock.calls[0]?.[0] as string;
+    expect(message).toContain('form1');
+    expect(message).toContain('\\p{L}+');
+    expect(message).toContain('checked only by Google');
+    warn.mockRestore();
+  });
+
+  test('stays silent with the allowance when there is nothing to report', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    assertDeployablePatterns('form1', { pattern: '^\\d{3}$' }, {
+      allowUnevaluable: true,
+    });
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
   });
 });

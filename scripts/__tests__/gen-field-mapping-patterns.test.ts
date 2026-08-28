@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { main } from '../gen-field-mapping.js';
@@ -81,5 +81,25 @@ describe('main() generated pattern policy', () => {
     ]);
 
     expect(existsSync(definitionPath(formId))).toBe(true);
+  });
+
+  test('--allow-unevaluable-patterns writes the definition and records the allowance', async () => {
+    const formId = 'overridePatternForm123';
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(htmlForPattern('\\p{L}'))));
+
+    await main([
+      'node',
+      'gen-field-mapping.ts',
+      '--url',
+      `https://docs.google.com/forms/d/e/${formId}/viewform`,
+      '--allow-unevaluable-patterns',
+    ]);
+
+    const definition = JSON.parse(
+      readFileSync(definitionPath(formId), 'utf-8'),
+    ) as Record<string, unknown>;
+    expect(definition['unevaluablePatternsAllowed']).toBe(true);
+    expect(warn.mock.calls[0]?.[0]).toContain('checked only by Google');
   });
 });

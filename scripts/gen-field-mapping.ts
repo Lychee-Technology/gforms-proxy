@@ -4,7 +4,7 @@
  * FormDefinition JSON file to src/forms/<formId>.json.
  *
  * Usage:
- *   tsx scripts/gen-field-mapping.ts --url <viewform_url> [--gemini-key <key>] [--turnstile] [--force]
+ *   tsx scripts/gen-field-mapping.ts --url <viewform_url> [--gemini-key <key>] [--turnstile] [--force] [--allow-unevaluable-patterns]
  */
 import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -18,15 +18,16 @@ import { checkTurnstileDowngrade } from './turnstile-guard.js';
 import type { FormDefinition } from '../src/lib/types.js';
 
 function printUsage(): void {
-  console.error('Usage: tsx scripts/gen-field-mapping.ts --url <viewform_url> [--gemini-key <key>] [--turnstile] [--force]');
+  console.error('Usage: tsx scripts/gen-field-mapping.ts --url <viewform_url> [--gemini-key <key>] [--turnstile] [--force] [--allow-unevaluable-patterns]');
 }
 
-function parseArgs(argv: string[]): { url: string; geminiKey: string | null; turnstile: boolean; force: boolean } {
+function parseArgs(argv: string[]): { url: string; geminiKey: string | null; turnstile: boolean; force: boolean; allowUnevaluable: boolean } {
   const args = argv.slice(2);
   let url = '';
   let geminiKey: string | null = null;
   let turnstile = false;
   let force = false;
+  let allowUnevaluable = false;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -38,6 +39,8 @@ function parseArgs(argv: string[]): { url: string; geminiKey: string | null; tur
       turnstile = true;
     } else if (arg === '--force') {
       force = true;
+    } else if (arg === '--allow-unevaluable-patterns') {
+      allowUnevaluable = true;
     } else {
       console.error(`Unknown argument: ${arg}`);
       printUsage();
@@ -50,11 +53,11 @@ function parseArgs(argv: string[]): { url: string; geminiKey: string | null; tur
     process.exit(1);
   }
 
-  return { url, geminiKey, turnstile, force };
+  return { url, geminiKey, turnstile, force, allowUnevaluable };
 }
 
 export async function main(argv: string[] = process.argv): Promise<void> {
-  const { url, geminiKey, turnstile, force } = parseArgs(argv);
+  const { url, geminiKey, turnstile, force, allowUnevaluable } = parseArgs(argv);
   const apiKey = geminiKey ?? process.env['GEMINI_API_KEY'] ?? null;
 
   // Reject invalid URLs before the guard so they report as URL errors, not
@@ -88,7 +91,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         required: [...((baseSchema.required as string[]) ?? []), 'turnstile_token'],
       }
     : baseSchema;
-  assertDeployablePatterns(rawData.formId, schema);
+  assertDeployablePatterns(rawData.formId, schema, { allowUnevaluable });
   const fieldMap = buildFieldMap(rawData.fields, metas);
   const submissionUrl = `https://docs.google.com/forms/d/e/${rawData.formId}/formResponse`;
 
@@ -98,6 +101,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     schema,
     fieldMap,
     ...(turnstile && { turnstileEnabled: true }),
+    ...(allowUnevaluable && { unevaluablePatternsAllowed: true }),
   };
 
   writeFileSync(out, JSON.stringify(definition, null, 2) + '\n');
