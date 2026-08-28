@@ -62,7 +62,8 @@ export const SAFE_SUBSET_HINT =
   'first member is ] or : ([]a], [:abc]; escape it, [\\]a]), and escapes such ' +
   'as \\a \\A \\z \\Q...\\E \\x{...} \\101. ' +
   "Counted repetition is capped at RE2's own maximum of 1000, and a pattern " +
-  'whose repetition expands past the program budget is refused too. ' +
+  'whose repetition expands past the program budget, or whose character ' +
+  'classes carry more ranges in total than the range budget, is refused too. ' +
   'Simplify the pattern on the Google Form, or pass ' +
   '--allow-unevaluable-patterns to onboard it with that field checked only ' +
   'by Google. See docs/adr/0005 and issue #21.';

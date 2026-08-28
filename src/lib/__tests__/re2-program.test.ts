@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'vitest';
 import { parse } from '../re2/parser.js';
-import { compile, MAX_PROGRAM_SIZE } from '../re2/program.js';
+import { compile, MAX_PROGRAM_SIZE, MAX_TOTAL_CLASS_RANGES } from '../re2/program.js';
 
 const programFor = (pattern: string) => {
   const ast = parse(pattern);
@@ -146,5 +146,30 @@ describe('compile', () => {
 
   test('the budget is 4000 instructions', () => {
     expect(MAX_PROGRAM_SIZE).toBe(4000);
+  });
+
+  test('the class-range budget is 4000 ranges', () => {
+    expect(MAX_TOTAL_CLASS_RANGES).toBe(4000);
+  });
+
+  test('a program exactly at the class-range budget compiles', () => {
+    // \w carries four ranges (0-9, A-Z, _, a-z), so 1000 copies emit exactly
+    // MAX_TOTAL_CLASS_RANGES while staying well inside the instruction budget.
+    const program = programFor('\\w{1000}') as { op: string; ranges?: unknown[] }[];
+    expect(program).not.toBeNull();
+    const ranges = program.reduce(
+      (total, inst) => total + (inst.ranges?.length ?? 0),
+      0,
+    );
+    expect(ranges).toBe(MAX_TOTAL_CLASS_RANGES);
+    expect(program.length).toBeLessThanOrEqual(MAX_PROGRAM_SIZE);
+  });
+
+  test('a program over the class-range budget is refused', () => {
+    // One copy past the budget. RE2 caps a repeat count at 1000, so the extra
+    // copy is concatenated: 1001 classes emit 4004 ranges across 1002
+    // instructions, so neither the instruction budget nor the work counter is
+    // anywhere near tripping and only the range budget can refuse this.
+    expect(programFor('\\w{1000}\\w')).toBeNull();
   });
 });

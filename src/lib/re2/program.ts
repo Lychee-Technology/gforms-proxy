@@ -2,7 +2,8 @@
  * Compiles the RE2 AST into a flat instruction program for the Thompson NFA
  * simulation in match.ts. Counted repetition expands by copying, so the
  * program size — not the pattern's syntactic shape — is what bounds the work.
- * A program over MAX_PROGRAM_SIZE is refused (ADR 0005).
+ * A program over MAX_PROGRAM_SIZE, over MAX_COMPILE_WORK node visits, or
+ * carrying more than MAX_TOTAL_CLASS_RANGES class ranges is refused (ADR 0005).
  *
  * Note: The generated program may contain epsilon edges (transitions without
  * consuming input) that form cycles, e.g., from `(?:){1,}` or `(?:a*)*`. The
@@ -37,14 +38,35 @@ export const MAX_PROGRAM_SIZE = 4000;
  */
 const MAX_COMPILE_WORK = 4 * MAX_PROGRAM_SIZE;
 
+/**
+ * A third limiter, over the total number of class ranges the program emits.
+ * The simulation tests class membership with a linear scan, so a `char`
+ * instruction costs its range count rather than O(1), and the work spent at one
+ * input position is bounded by the ranges reachable across every active
+ * instruction — the program's total, not any single class's maximum. Capping
+ * that total is what makes the per-character cost bounded rather than merely
+ * finite: without it, 4000 instructions each carrying thousands of ranges would
+ * cost far more per character than the instruction budget suggests. The limit
+ * is the same order as MAX_PROGRAM_SIZE and far above anything real — `\w`
+ * contributes 4 ranges, `\s` 3, `\d` 1, and a hand-written class usually fewer
+ * than 10 — so it cannot bite a form an operator would actually onboard. An
+ * overrun is reported as "pattern too large", like the other two.
+ */
+export const MAX_TOTAL_CLASS_RANGES = 4000;
+
 class BudgetExceeded extends Error {}
 
 class Compiler {
   private readonly prog: Inst[] = [];
   private work = 0;
+  private ranges = 0;
 
   private emit(inst: Inst): number {
     if (this.prog.length >= MAX_PROGRAM_SIZE) throw new BudgetExceeded();
+    if (inst.op === 'char') {
+      this.ranges += inst.ranges.length;
+      if (this.ranges > MAX_TOTAL_CLASS_RANGES) throw new BudgetExceeded();
+    }
     this.prog.push(inst);
     return this.prog.length - 1;
   }

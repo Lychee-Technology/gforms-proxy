@@ -48,6 +48,49 @@ function getPattern(pattern: string): Matcher | null {
   return matcher;
 }
 
+// Matching costs one step per input code point, so n is the last unbounded
+// factor of the matcher's n·m·R (m and R are capped at compile time). A
+// schema's `maxLength` bounds n where it exists — it is terminal, so an
+// oversized string never reaches the pattern check — but a schema without one
+// leaves the axis open. Cap it here too.
+const MAX_PATTERN_INPUT_CODE_POINTS = 10_000;
+
+// Code points, not UTF-16 units: the matcher iterates the string, so a
+// surrogate pair is one step to it. A UTF-16 length is never below the code
+// point count, which makes the cheap check a sound early exit.
+function isTooLongToMatch(value: string): boolean {
+  if (value.length <= MAX_PATTERN_INPUT_CODE_POINTS) return false;
+  let count = 0;
+  for (const _cp of value) {
+    count++;
+    if (count > MAX_PATTERN_INPUT_CODE_POINTS) return true;
+  }
+  return false;
+}
+
+// One warning per pattern, like the compile cache above: an attacker sending
+// many oversized bodies must not be able to flood the log.
+const oversizedInputWarned = new Set<string>();
+
+// The matcher to use for this pattern against this value, or null if the check
+// cannot be evaluated — the pattern is outside the supported subset, or the
+// value is too long to run it over. Callers skip an unevaluable check in both
+// directions; Google remains the final judge (ADR 0002, ADR 0005).
+function matcherFor(pattern: string, value: unknown): Matcher | null {
+  const matcher = getPattern(pattern);
+  if (matcher === null) return null;
+  if (typeof value === 'string' && isTooLongToMatch(value)) {
+    if (!oversizedInputWarned.has(pattern)) {
+      oversizedInputWarned.add(pattern);
+      console.warn(
+        `Skipping pattern (input over ${MAX_PATTERN_INPUT_CODE_POINTS} code points): ${pattern}`,
+      );
+    }
+    return null;
+  }
+  return matcher;
+}
+
 function validateProperty(
   field: string,
   value: unknown,
@@ -94,7 +137,7 @@ function validateProperty(
     }
     const pattern = schema['pattern'];
     if (typeof pattern === 'string') {
-      const re = getPattern(pattern);
+      const re = matcherFor(pattern, value);
       if (re && !re.test(value)) {
         errors.push({ field, message: `must match pattern: ${pattern}` });
       }
@@ -157,13 +200,16 @@ function validateProperty(
     for (const sub of allOf as Schema[]) {
       if (isObject(sub) && 'not' in sub) {
         const notSchema = sub['not'] as Schema;
-        // A skipped (uncompilable) pattern inside `not` would leave notErrors
-        // empty and invert into rejecting every value — skip the whole
-        // constraint instead. This holds however many keys the not-schema
-        // carries: rejecting requires the value to match every key including
-        // the unevaluable pattern, so a confident rejection is never possible.
+        // An unevaluable pattern inside `not` would leave notErrors empty and
+        // invert into rejecting every value — skip the whole constraint
+        // instead. This holds however many keys the not-schema carries:
+        // rejecting requires the value to match every key including the
+        // unevaluable pattern, so a confident rejection is never possible. It
+        // holds for both ways a check can be unevaluable, uncompilable pattern
+        // and over-long value, so the test is the same matcherFor the forward
+        // check uses.
         const notPattern = isObject(notSchema) ? notSchema['pattern'] : undefined;
-        if (typeof notPattern === 'string' && getPattern(notPattern) === null) {
+        if (typeof notPattern === 'string' && matcherFor(notPattern, value) === null) {
           continue;
         }
         const notErrors: ValidationError[] = [];

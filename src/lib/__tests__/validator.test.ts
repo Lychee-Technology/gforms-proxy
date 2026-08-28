@@ -646,6 +646,17 @@ describe('compilePattern', () => {
       reason: 'pattern too large',
     });
   });
+
+  test('too many class ranges in total reports the same reason', () => {
+    // 1000 copies of \w sit exactly on the range budget; one more exceeds it
+    // while the instruction budget still has room, so this is the range budget
+    // speaking and it reports no new reason of its own.
+    expect(compilePattern('\\w{1000}').ok).toBe(true);
+    expect(compilePattern('\\w{1000}\\w')).toEqual({
+      ok: false,
+      reason: 'pattern too large',
+    });
+  });
 });
 
 describe('validator — pattern keyword', () => {
@@ -684,5 +695,75 @@ describe('validator — pattern keyword', () => {
     const errors = validate({ answer: 'abcdefgh' }, schema);
     expect(errors).toHaveLength(1);
     expect(errors[0]?.message).toContain('at most 3');
+  });
+});
+
+/**
+ * The input-length cap. `maxLength` bounds n where a schema carries one; these
+ * cover the schema that does not. Each test uses a distinct pattern because the
+ * warn-once bookkeeping is module-level and lives for the process.
+ */
+describe('validate — pattern input over the length cap', () => {
+  const CAP = 10_000;
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  test('a value over the cap skips the pattern check', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const schema = {
+      type: 'object',
+      properties: { code: { type: 'string', pattern: '^cap1-[a-z]+$' } },
+    };
+    expect(validate({ code: 'x'.repeat(CAP + 1) }, schema)).toEqual([]);
+  });
+
+  test('a value at the cap is still enforced', () => {
+    const schema = {
+      type: 'object',
+      properties: { code: { type: 'string', pattern: '^cap2-[a-z]+$' } },
+    };
+    expect(validate({ code: 'x'.repeat(CAP) }, schema)).toHaveLength(1);
+    expect(validate({ code: `cap2-${'x'.repeat(CAP - 5)}` }, schema)).toEqual([]);
+  });
+
+  test('the cap counts code points, not UTF-16 units', () => {
+    // U+1D400 is a surrogate pair, so this value is 12000 UTF-16 units but
+    // 6000 code points — under the cap, and still checked.
+    const schema = {
+      type: 'object',
+      properties: { code: { type: 'string', pattern: '^cap3-[a-z]+$' } },
+    };
+    const value = '\u{1D400}'.repeat(6000);
+    expect(value.length).toBe(12000);
+    expect(validate({ code: value }, schema)).toHaveLength(1);
+  });
+
+  test('a not-constraint skips too instead of inverting into a rejection', () => {
+    // Letting the forward check skip while the not branch runs would leave
+    // notErrors empty and reject a value the constraint permits.
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const schema = {
+      type: 'object',
+      properties: {
+        code: { type: 'string', allOf: [{ not: { pattern: '^cap4-forbidden$' } }] },
+      },
+    };
+    expect(validate({ code: 'x'.repeat(CAP + 1) }, schema)).toEqual([]);
+  });
+
+  test('warns once per pattern, not once per oversized request', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const schema = {
+      type: 'object',
+      properties: { code: { type: 'string', pattern: '^cap5-[a-z]+$' } },
+    };
+    const value = 'x'.repeat(CAP + 1);
+    validate({ code: value }, schema);
+    validate({ code: value }, schema);
+    validate({ code: `${value}y` }, schema);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]?.[0]).toContain('input over 10000 code points');
   });
 });
