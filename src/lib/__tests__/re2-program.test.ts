@@ -165,6 +165,15 @@ describe('compile', () => {
     expect(program.length).toBeLessThanOrEqual(MAX_PROGRAM_SIZE);
   });
 
+  test('the range budget is ranges times repetitions, so it reaches real patterns', () => {
+    // Documented in ADR 0005 and in SAFE_SUBSET_HINT: an "allowed characters,
+    // up to N" validation of about 8 ranges caps N around 500. This is the
+    // arithmetic those two state, so it is guarded rather than left to prose.
+    expect(programFor("^[a-zA-Z0-9 .,'-]{1,500}$")).not.toBeNull();
+    expect(programFor("^[a-zA-Z0-9 .,'-]{1,501}$")).toBeNull();
+    expect(programFor('^[\\w\\s.,;:!?\'"()-]{1,300}$')).toBeNull();
+  });
+
   test('a program over the class-range budget is refused', () => {
     // One copy past the budget. RE2 caps a repeat count at 1000, so the extra
     // copy is concatenated: 1001 classes emit 4004 ranges across 1002

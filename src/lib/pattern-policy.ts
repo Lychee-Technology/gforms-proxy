@@ -62,9 +62,12 @@ export const SAFE_SUBSET_HINT =
   'first member is ] or : ([]a], [:abc]; escape it, [\\]a]), and escapes such ' +
   'as \\a \\A \\z \\Q...\\E \\x{...} \\101. ' +
   "Counted repetition is capped at RE2's own maximum of 1000, and a pattern " +
-  'whose repetition expands past the program budget, or whose character ' +
-  'classes carry more ranges in total than the range budget, is refused too. ' +
-  'Simplify the pattern on the Google Form, or pass ' +
+  'whose repetition expands past the 4000-instruction program budget is ' +
+  'refused too. A second budget of 4000 caps the character-class ranges the ' +
+  'whole expansion emits (ranges multiplied by repetitions), so a class of ' +
+  "about 8 ranges caps repetition around 500: ^[a-zA-Z0-9 .,'-]{1,500}$ " +
+  'compiles and {1,501} does not. Lower the repeat count, narrow the class, ' +
+  'otherwise simplify the pattern on the Google Form, or pass ' +
   '--allow-unevaluable-patterns to onboard it with that field checked only ' +
   'by Google. See docs/adr/0005 and issue #21.';
 

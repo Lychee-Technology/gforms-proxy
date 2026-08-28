@@ -44,13 +44,18 @@ const MAX_COMPILE_WORK = 4 * MAX_PROGRAM_SIZE;
  * instruction costs its range count rather than O(1), and the work spent at one
  * input position is bounded by the ranges reachable across every active
  * instruction — the program's total, not any single class's maximum. Capping
- * that total is what makes the per-character cost bounded rather than merely
- * finite: without it, 4000 instructions each carrying thousands of ranges would
- * cost far more per character than the instruction budget suggests. The limit
- * is the same order as MAX_PROGRAM_SIZE and far above anything real — `\w`
- * contributes 4 ranges, `\s` 3, `\d` 1, and a hand-written class usually fewer
- * than 10 — so it cannot bite a form an operator would actually onboard. An
- * overrun is reported as "pattern too large", like the other two.
+ * that total closes a hole MAX_PROGRAM_SIZE leaves open: 4000 instructions each
+ * carrying thousands of ranges would cost far more per character than the
+ * instruction budget suggests. It is not the binding factor in the measured
+ * worst case, which saturates the instruction budget instead (ADR 0005).
+ *
+ * The budget is ranges multiplied by repetitions, so it is reachable by
+ * ordinary patterns: a class of about 8 ranges caps counted repetition around
+ * 500, which is why `^[a-zA-Z0-9 .,'-]{1,500}$` compiles and `{1,501}` does
+ * not. `\w` contributes 4 ranges, `\s` 3, `\d` 1, so `\w{1000}\w` is refused
+ * while `\w{1000}` sits exactly on the budget. A form that needs more is
+ * onboarded with `--allow-unevaluable-patterns`, leaving that field to Google.
+ * An overrun is reported as "pattern too large", like the other two.
  */
 export const MAX_TOTAL_CLASS_RANGES = 4000;
 
