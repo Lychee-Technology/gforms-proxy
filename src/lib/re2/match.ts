@@ -5,7 +5,7 @@
  * the instruction count, and R the number of ranges in a single `char`
  * instruction's class, which `inRanges` scans linearly. MAX_PROGRAM_SIZE bounds
  * m; nothing bounds R or n, so the product is bounded in shape but not yet in
- * magnitude (#29).
+ * magnitude (#29, #30).
  *
  * There are no captures and no leftmost-longest bookkeeping. A JSON Schema
  * `pattern` asks only whether a match exists, which also makes greedy and lazy
