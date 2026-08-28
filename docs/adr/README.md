@@ -8,6 +8,7 @@ These ADRs record the decisions made in the project's design specs, whose workin
 | [0002](0002-hand-rolled-json-schema-validator.md) | Hand-rolled JSON Schema validator instead of ajv |
 | [0003](0003-fieldmap-decouples-schema-keys-from-entry-ids.md) | Decouple schema keys from Google entry IDs via fieldMap |
 | [0004](0004-cli-writes-form-definition-to-fixed-path.md) | CLI always writes FormDefinition to `src/forms/<formId>.json` |
-| [0005](0005-backtracking-free-pattern-matcher.md) | Backtracking-free matcher for Google Forms patterns |
+| [0005](0005-backtracking-free-pattern-matcher.md) | Backtracking-free matcher for Google Forms patterns (superseded by 0006) |
+| [0006](0006-google-enforces-patterns-not-us.md) | Google enforces `pattern`, not us |
 
 To add an ADR: copy the format (Status / Date / Source, then Context / Decision / Consequences), take the next number, and add a row here.

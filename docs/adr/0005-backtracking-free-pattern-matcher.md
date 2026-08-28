@@ -1,6 +1,6 @@
 # ADR 0005: Backtracking-free matcher for Google Forms patterns
 
-**Status:** Accepted
+**Status:** Superseded by ADR 0006
 **Date:** 2026-08-27
 **Source:** design spec "Backtracking-Free Pattern Matcher" (2026-08-27); posted on issue #21
 
