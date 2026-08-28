@@ -315,4 +315,41 @@ describe('parse — quantifiers', () => {
     expect(parse('^(yes|no)$')).not.toBeNull();
     expect(parse('[a-z]+@[a-z]+\\.[a-z]+')).not.toBeNull();
   });
+
+  test('a{1000} shape is exactly { kind: repeat, node: char, min: 1000, max: 1000 }', () => {
+    expect(parse('a{1000}')).toEqual({
+      kind: 'repeat',
+      node: { kind: 'char', codePoint: 0x61 },
+      min: 1000,
+      max: 1000,
+    });
+  });
+
+  test('triple ? is a double repeat and returns null', () => {
+    expect(parse('a???')).toBeNull();
+  });
+
+  test('? with no operand returns null', () => {
+    expect(parse('?a')).toBeNull();
+  });
+
+  test('{1001} bare (not operand-less) returns null', () => {
+    expect(parse('{1001}')).toBeNull();
+  });
+
+  test('a{1000}{1000} is a double repeat and returns null', () => {
+    expect(parse('a{1000}{1000}')).toBeNull();
+  });
+
+  test('a long run of { characters does not throw or allocate O(n²)', () => {
+    // Ensure we don't exhaust the argument list or cause O(n²) allocation.
+    // Each { by itself is a literal character since it's not a valid quantifier.
+    const longBraceRun = '{'.repeat(200000);
+    const result = parse(longBraceRun);
+    // The parse should succeed: it's a concat of 200,000 literal { characters.
+    // The point is that it should do so without throwing, without O(n²) allocation,
+    // and without hitting the spread operator's argument limit.
+    expect(result).not.toBeNull();
+    expect((result as { kind: string }).kind).toBe('concat');
+  });
 });

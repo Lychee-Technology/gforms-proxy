@@ -335,9 +335,11 @@ class Parser {
   /**
    * Consumes a quantifier and returns its bounds, or null when the next token
    * is not one. Returns null without consuming for a brace form outside RE2's
-   * decimal grammar, which is literal text. An out-of-range or inverted bound
-   * throws the whole parse away by returning a sentinel the caller cannot use;
-   * it is reported as an unsupported pattern.
+   * decimal grammar, which is literal text. A malformed or out-of-range bound
+   * also returns null, but additionally sets the failed flag; parse() checks
+   * this flag to reject the entire pattern. This mechanism ensures that out-of-
+   * range bounds (e.g., a{1001}) fail the whole parse, while invalid brace
+   * syntax (e.g., a{,2}) leaves the { to be treated as a literal character.
    */
   private readQuantifier(): Quantifier | null {
     const cp = this.peek();
@@ -355,17 +357,82 @@ class Parser {
     }
     if (cp !== CP.lbrace) return null;
 
-    const rest = String.fromCodePoint(...this.cps.slice(this.i));
-    const match = BRACE.exec(rest);
-    if (match === null) return null;
+    // Scan the brace form directly: {n}, {n,}, or {n,m}.
+    // Each count is 0 or a nonzero digit followed by digits (no leading zeros).
+    // This avoids O(n²) string allocation and argument-list overflows.
+    const save = this.i;
+    this.i++; // skip the '{'
 
-    const min = Number(match[1]);
-    const hasComma = match[0].includes(',');
-    const max = hasComma ? (match[2] === undefined ? null : Number(match[2])) : min;
+    // Read the first count.
+    const minStart = this.i;
+    let minDigits = 0;
+    if (this.peek() === 0x30) {
+      // '0'
+      this.i++;
+      minDigits = 1;
+    } else if (this.peek() !== undefined && this.peek()! >= 0x31 && this.peek()! <= 0x39) {
+      // nonzero digit
+      while (
+        this.peek() !== undefined &&
+        this.peek()! >= 0x30 &&
+        this.peek()! <= 0x39
+      ) {
+        this.i++;
+        minDigits++;
+      }
+    }
+    if (minDigits === 0) {
+      this.i = save;
+      return null; // not a brace form
+    }
+
+    const min = Number(String.fromCodePoint(...this.cps.slice(minStart, this.i)));
+
+    // Check for comma.
+    let max: number | null = min; // default to {n}
+    if (this.peek() === CP.dash) {
+      // This is {n-...}, not a valid quantifier.
+      this.i = save;
+      return null;
+    }
+    if (this.peek() === 0x2c) {
+      // ','
+      this.i++;
+      const maxStart = this.i;
+      let maxDigits = 0;
+      if (this.peek() === 0x30) {
+        // '0'
+        this.i++;
+        maxDigits = 1;
+      } else if (this.peek() !== undefined && this.peek()! >= 0x31 && this.peek()! <= 0x39) {
+        // nonzero digit
+        while (
+          this.peek() !== undefined &&
+          this.peek()! >= 0x30 &&
+          this.peek()! <= 0x39
+        ) {
+          this.i++;
+          maxDigits++;
+        }
+      }
+      if (maxDigits === 0) {
+        max = null; // {n,}
+      } else {
+        max = Number(String.fromCodePoint(...this.cps.slice(maxStart, this.i)));
+      }
+    }
+
+    // Check for closing '}'.
+    if (this.peek() !== CP.rbrace) {
+      this.i = save;
+      return null; // not a brace form
+    }
+    this.i++; // skip the '}'
+
+    // Validate the bounds.
     if (min > RE2_MAX_REPEAT) return this.fail();
     if (max !== null && (max > RE2_MAX_REPEAT || max < min)) return this.fail();
 
-    this.i += [...match[0]].length;
     return { min, max };
   }
 
