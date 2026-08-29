@@ -412,6 +412,11 @@ describe('removed routes', () => {
   test('neither /schema route reaches Google', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch');
     await app.request('/schema?url=https://docs.google.com/forms/d/e/abc/viewform');
+    await app.request('/schema', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: 'https://docs.google.com/forms/d/e/abc/viewform' }),
+    });
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

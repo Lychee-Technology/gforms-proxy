@@ -17,6 +17,10 @@ app.use('*', cors());
 // A registered form's schema is already bundled into the Worker (ADR 0001), so
 // serving it costs Google nothing. The Worker performs no live schema
 // extraction at all — that is the offline generator's job (ADR 0007).
+//
+// Deliberately no Cache-Control: a bundled schema changes only on deploy, so a
+// TTL would buy a stale window after every deploy in exchange for saving a
+// request answered from memory (ADR 0007).
 app.get('/api/v1/forms/:formId/schema', (c) => {
   const definition = registry.get(c.req.param('formId'));
   if (!definition) return c.json({ error: 'Form not found' }, 404);
