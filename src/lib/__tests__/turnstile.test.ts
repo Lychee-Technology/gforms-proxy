@@ -106,3 +106,44 @@ describe('verifyTurnstile', () => {
     expect((err as TurnstileError).errorCodes).toBeUndefined();
   });
 });
+
+describe('verifyTurnstile — outbound timeout (#10)', () => {
+  test('attaches a live AbortSignal to the siteverify request', async () => {
+    let capturedSignal: unknown = undefined;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
+      capturedSignal = init?.signal;
+      return siteverifyResponse({ success: true });
+    });
+
+    await verifyTurnstile('token', SECRET);
+
+    expect(capturedSignal).toBeInstanceOf(AbortSignal);
+    expect((capturedSignal as AbortSignal).aborted).toBe(false);
+  });
+
+  test('surfaces a timeout as TurnstileServiceError, never TurnstileError', async () => {
+    const timeout = new Error('The operation was aborted due to timeout');
+    timeout.name = 'TimeoutError';
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(timeout);
+
+    const err = await verifyTurnstile('token', SECRET).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(TurnstileServiceError);
+    expect(err).not.toBeInstanceOf(TurnstileError);
+    expect((err as Error).message).toMatch(/timed out/i);
+  });
+
+  test('surfaces a timeout during the body read as TurnstileServiceError', async () => {
+    const timeout = new Error('The operation was aborted due to timeout');
+    timeout.name = 'TimeoutError';
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.reject(timeout),
+    } as unknown as Response);
+
+    const err = await verifyTurnstile('token', SECRET).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(TurnstileServiceError);
+  });
+});

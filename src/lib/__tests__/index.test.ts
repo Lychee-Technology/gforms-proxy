@@ -448,3 +448,44 @@ describe('removed routes', () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 });
+
+// The acceptance criterion for #10 is observable only at the route: a hanging
+// upstream must come back as the endpoint's own 502/503, never an unhandled
+// 500. Both modules map an abort onto their existing error class, so these
+// assert the mapping end to end rather than trusting the unit tests alone.
+describe('outbound fetch timeouts surface as 502/503 (#10)', () => {
+  const timeoutError = () => {
+    const err = new Error('The operation was aborted due to timeout');
+    err.name = 'TimeoutError';
+    return err;
+  };
+
+  test('a timing-out submission to Google answers 502', async () => {
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(timeoutError());
+
+    const res = await app.request('/api/v1/forms/testForm123/responses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Alice' }),
+    });
+
+    expect(res.status).toBe(502);
+  });
+
+  test('a timing-out Turnstile siteverify answers 503', async () => {
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(timeoutError());
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const res = await app.request(
+      '/api/v1/forms/turnstileForm/responses',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Alice', turnstile_token: 'tok' }),
+      },
+      { TURNSTILE_SECRET_KEY: 'test-secret' },
+    );
+
+    expect(res.status).toBe(503);
+  });
+});
