@@ -2,14 +2,17 @@ import type {
   FieldDetail,
   FieldMeta,
   FieldSchemaDetail,
-  FormMeta,
   JsonSchemaProperty,
   RawFormData,
 } from './types.js';
 
 // --- Pure helpers ---
 
-const normalizeKey = (value: string, fallbackLabel: string): string => {
+// The single source of truth for schema key normalization. Exported because
+// the Gemini path in `scripts/gemini.ts` normalizes model-supplied keys with
+// the same rules; it used to keep a verbatim copy, which made this one dead
+// and edits to it silently ineffective (#10).
+export const normalizeKey = (value: string, fallbackLabel: string): string => {
   const try1 = value
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '_')
@@ -276,10 +279,6 @@ export function buildFieldsMeta(questions: string[]): FieldMeta[] {
   }));
 }
 
-export function buildFormMeta(title: string): FormMeta {
-  return { translated: title };
-}
-
 export function buildJsonSchema(
   rawData: RawFormData,
   prebuiltMetas?: FieldMeta[],
@@ -307,7 +306,6 @@ export function buildJsonSchema(
     };
   });
 
-  const formMeta = buildFormMeta(rawData.formTitle);
   const properties: Record<string, JsonSchemaProperty> = {};
   for (const field of fieldDetails) {
     properties[field.key] = buildFieldPropertySchema(field);
@@ -316,7 +314,7 @@ export function buildJsonSchema(
   const requiredKeys = fieldDetails.filter((f) => f.required).map((f) => f.key);
   const schema: Record<string, unknown> = {
     $schema: 'https://json-schema.org/draft/2020-12/schema',
-    title: formMeta.translated || rawData.formTitle,
+    title: rawData.formTitle,
     description: rawData.formTitle,
     type: 'object',
     additionalProperties: false,

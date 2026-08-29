@@ -1,23 +1,8 @@
 import { GoogleGenAI } from "@google/genai";
 import type { FieldMeta } from "../src/lib/types.js";
-import { buildFieldsMeta } from "../src/lib/schema.js";
+import { buildFieldsMeta, normalizeKey } from "../src/lib/schema.js";
 
 const GEMINI_MODEL = "gemini-3.1-flash-lite";
-
-const normalizeKey = (value: string, fallbackLabel: string): string => {
-  const try1 = value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "")
-    .slice(0, 48);
-  if (try1) return try1;
-  const try2 = fallbackLabel
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "")
-    .slice(0, 48);
-  return try2 || "field";
-};
 
 const parseGeminiText = <T>(text: string): T => {
   const cleaned = text.replace(/```json|```/g, "").trim();
@@ -99,57 +84,5 @@ export async function buildFieldsMetaWithGemini(
     });
   } catch {
     return buildFieldsMeta(questions);
-  }
-}
-
-/**
- * Translates a form title to English using Gemini AI.
- * Returns the original title when apiKey is absent or translation fails.
- */
-export async function translateFormTitleWithGemini(
-  title: string,
-  apiKey: string | null,
-): Promise<string> {
-  if (!apiKey) return title;
-
-  try {
-    const client = new GoogleGenAI({ apiKey });
-    const result = await client.models.generateContent({
-      model: GEMINI_MODEL,
-      contents: [
-        {
-          role: "user",
-          parts: [
-            {
-              text: [
-                "Translate the following Google Form title into clear English.",
-                'Return JSON with a single property "translated".',
-                "No explanations.",
-                `Title: ${title}`,
-              ].join("\n"),
-            },
-          ],
-        },
-      ],
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: "object",
-          properties: { translated: { type: "string" } },
-          required: ["translated"],
-        },
-      },
-    });
-
-    const text = result?.text;
-    if (!text) throw new Error("Empty Gemini response");
-    const parsed = parseGeminiText<Record<string, unknown>>(text);
-    const translated =
-      typeof parsed["translated"] === "string" && parsed["translated"].trim()
-        ? parsed["translated"].trim()
-        : title;
-    return translated;
-  } catch {
-    return title;
   }
 }
