@@ -8,17 +8,17 @@ A Cloudflare Worker that puts a JSON Schema API in front of Google Forms, so pro
 
 For 99% of small businesses, a website can run on Cloudflare Pages, but it almost always needs a form for customer interaction. Paying for form hosting is hard to justify when Google Forms already does the job, and embedding a Google Form directly makes the site feel cheap.
 
-This proxy fetches the form's HTML, extracts its structure, converts the fields into a JSON Schema, and puts a clean API in front, so the website never embeds Google Forms at all.
+A one-off generation step reads the form's HTML, extracts its structure, and converts the fields into a JSON Schema, which is bundled into the Worker. The site then reads that schema and posts answers back through a clean JSON API, and never embeds Google Forms at all.
 
 ### Use AI to fill the forms
 
-The same schema makes forms fillable by AI. The proxy parses a form's HTML into questions, types, options, and validation rules, and expresses them as a JSON Schema (Draft 2020-12). An LLM such as Gemini can then translate the questions to English, generate concise metadata (titles, keys, translations), and map user data onto the form's fields; the schema validates the result before anything is submitted.
+The same schema makes forms fillable by AI. The generator parses a form's HTML into questions, types, options, and validation rules, and expresses them as a JSON Schema (Draft 2020-12). An LLM such as Gemini can then translate the questions to English, generate concise metadata (titles, keys, translations), and map user data onto the form's fields; the schema validates the result before anything is submitted.
 
 ## How it works
 
-The proxy fetches the form's HTML and locates the `FB_PUBLIC_LOAD_DATA_` global variable, then parses the question entries embedded in it. For each question it extracts the label and help text, the field type (short answer, paragraph, multiple choice, checkboxes, dropdown, linear scale, date, time, grids), the options for choice-based questions, the required flag, and any validation rules (number ranges, text patterns, length limits, regex).
+Parsing happens offline, in the generator — the Worker itself never fetches a Google Form (see `docs/adr/0007-no-live-schema-extraction-at-runtime.md`). The generator fetches the form's HTML and locates the `FB_PUBLIC_LOAD_DATA_` global variable, then parses the question entries embedded in it. For each question it extracts the label and help text, the field type (short answer, paragraph, multiple choice, checkboxes, dropdown, linear scale, date, time, grids), the options for choice-based questions, the required flag, and any validation rules (number ranges, text patterns, length limits, regex).
 
-From that it generates a JSON Schema: types and constraints per field, validation rules mapped to JSON Schema keywords, required field declarations, and the form's metadata (title, description, ID).
+From that it generates a JSON Schema: types and constraints per field, validation rules mapped to JSON Schema keywords, required field declarations, and the form's metadata (title, description, ID). That schema, plus a `fieldMap` from schema keys to Google entry IDs, is what the Worker serves and validates against.
 
 ## Supported question types
 
@@ -73,7 +73,12 @@ To let the Worker accept submissions for the form, register it: add a JSON impor
 
 ### API
 
-`GET /schema?url=<viewform_url>` (or `POST /schema` with body `{ "url": "..." }`) fetches any public Google Form and returns its JSON Schema (Draft 2020-12). This path is stateless and needs no registration.
+The Worker serves registered forms only. It has two routes; anything else answers `404` with `{ "error": "Not found" }`.
+
+`GET /api/v1/forms/:formId/schema` returns the registered form's JSON Schema (Draft 2020-12) straight from the bundle, making no request to Google. Responses:
+
+- `200`: the JSON Schema object itself. For a Turnstile-protected form the schema includes a required `turnstile_token` property — it describes the body you POST to this proxy, not the Google Form
+- `404`: the `formId` is not registered
 
 `POST /api/v1/forms/:formId/responses` accepts a JSON body for a pre-registered form, validates it against the stored schema, verifies Turnstile when the definition requires it, and forwards the data to Google's `formResponse` endpoint. Responses:
 

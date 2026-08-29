@@ -30,13 +30,16 @@ When the generated schema carries at least one `pattern`, the script prints a no
 
 A Cloudflare Worker (Hono app, entry `src/index.ts` per `wrangler.toml`) that fronts Google Forms. It does two things:
 
-1. Live schema extraction: `GET/POST /schema` fetches any public Google Form, parses it, and returns a JSON Schema (Draft 2020-12). This path is stateless; nothing is registered.
+1. Schema lookup: `GET /api/v1/forms/:formId/schema` returns a registered form's bundled JSON Schema (Draft 2020-12) from the registry, with no outbound request.
 2. Submission proxy: `POST /api/v1/forms/:formId/responses` accepts JSON for pre-registered forms only, validates it against the stored schema, optionally verifies a Cloudflare Turnstile token, then posts urlencoded data to Google's `formResponse` endpoint.
 
-An offline generation step connects the two: `scripts/gen-field-mapping.ts` fetches a form, builds its `FormDefinition` (the schema plus a `fieldMap` from schema keys to `entry.XXXXXXX` IDs), and writes `src/forms/<formId>.json`. Registration is manual: add a JSON import (`with { type: 'json' }`) and a Map entry in `src/forms/registry.ts`, then deploy. Definitions are bundled into the Worker, not stored in KV or D1.
+Both routes serve registered forms only; anything else gets a JSON `404`. The Worker performs no live schema extraction and never fetches a caller-supplied URL — its only outbound requests go to Google's `formResponse` and Turnstile's siteverify (ADR 0007).
+
+An offline generation step feeds both: `scripts/gen-field-mapping.ts` fetches a form, builds its `FormDefinition` (the schema plus a `fieldMap` from schema keys to `entry.XXXXXXX` IDs), and writes `src/forms/<formId>.json`. Registration is manual: add a JSON import (`with { type: 'json' }`) and a Map entry in `src/forms/registry.ts`, then deploy. Definitions are bundled into the Worker, not stored in KV or D1.
 
 Data flows through `src/lib/`:
 
+- `parser.ts` and `schema.ts` are build-time only: `scripts/gen-field-mapping.ts` is their sole importer, and the Worker does not bundle them (ADR 0007). `validateFormUrl` there guards a CLI run, not a public endpoint.
 - `parser.ts` fetches the form HTML and extracts the `FB_PUBLIC_LOAD_DATA_` embedded array (question labels, type codes, options, required flags, validation rules). The reverse-engineered format is documented in `google-forms-internals.md`; the type-code and validation-code tables live in `types.ts`.
 - `schema.ts` turns parsed data into the JSON Schema and fieldMap. Grid questions become nested objects; validation rules map to JSON Schema keywords.
 - `validator.ts` is a hand-rolled validator for the JSON Schema subset that `schema.ts` emits (no ajv, so it runs fine on Workers). If `schema.ts` starts emitting a new keyword, `validator.ts` must learn it too. The exception is `pattern`, which is deliberately not evaluated: Google enforces regex rules server-side and answers 400 when a submission violates one (ADR 0006). A `not` constraint whose schema carries a `pattern` is skipped outright, because inverting an unevaluated pattern would reject every submission to that form.

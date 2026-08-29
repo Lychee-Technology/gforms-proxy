@@ -1,8 +1,5 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
-import type { Context } from 'hono';
-import { fetchAndParseForm, FormFetchError, FormParseError } from './lib/parser.js';
-import { buildJsonSchema } from './lib/schema.js';
 import registry from './forms/registry.js';
 import { validate } from './lib/validator.js';
 import { submitToGoogleForms, SubmissionError } from './lib/submitter.js';
@@ -17,43 +14,14 @@ const app = new Hono<{ Bindings: Env }>();
 // Public API — any origin may call this service
 app.use('*', cors());
 
-app.get('/', (c) =>
-  c.json({ status: 'ok', endpoints: ['GET /schema?url=...', 'POST /schema { url }'] }),
-);
-
-app.get('/schema', async (c) => {
-  const url = c.req.query('url');
-  if (!url) return c.json({ error: 'Missing required query parameter: url' }, 400);
-  return handleSchema(url, c);
+// A registered form's schema is already bundled into the Worker (ADR 0001), so
+// serving it costs Google nothing. The Worker performs no live schema
+// extraction at all — that is the offline generator's job (ADR 0007).
+app.get('/api/v1/forms/:formId/schema', (c) => {
+  const definition = registry.get(c.req.param('formId'));
+  if (!definition) return c.json({ error: 'Form not found' }, 404);
+  return c.json(definition.schema);
 });
-
-app.post('/schema', async (c) => {
-  let body: { url?: unknown };
-  try {
-    body = await c.req.json<{ url?: unknown }>();
-  } catch {
-    return c.json({ error: 'Invalid JSON body' }, 400);
-  }
-  if (typeof body.url !== 'string' || !body.url) {
-    return c.json({ error: 'Body field "url" must be a non-empty string' }, 400);
-  }
-  return handleSchema(body.url, c);
-});
-
-async function handleSchema(url: string, c: Context<{ Bindings: Env }>) {
-  try {
-    const rawData = await fetchAndParseForm(url);
-    const schema = buildJsonSchema(rawData);
-    return c.json(schema);
-  } catch (err) {
-    if (err instanceof FormParseError) return c.json({ error: err.message }, 400);
-    if (err instanceof FormFetchError) {
-      return c.json({ error: err.message }, err.statusCode === 404 ? 404 : 502);
-    }
-    console.error('Unhandled error:', err);
-    return c.json({ error: 'Internal server error' }, 500);
-  }
-}
 
 app.post('/api/v1/forms/:formId/responses', async (c) => {
   const formId = c.req.param('formId');
@@ -161,5 +129,11 @@ app.post('/api/v1/forms/:formId/responses', async (c) => {
 
   return c.json({ success: true });
 });
+
+// Every error this API emits is JSON; Hono's default 404 is plain text, which
+// would make an unmatched route the one response a client has to parse
+// differently. "Not found" (no such route) stays distinct from "Form not
+// found" (route matched, form unregistered).
+app.notFound((c) => c.json({ error: 'Not found' }, 404));
 
 export default app;

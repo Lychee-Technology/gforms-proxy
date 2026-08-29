@@ -342,3 +342,76 @@ describe('POST /api/v1/forms/:formId/responses (Turnstile-enabled form)', () => 
     expect(json.success).toBe(true);
   });
 });
+
+describe('GET /api/v1/forms/:formId/schema', () => {
+  test('returns the bundled schema for a registered form', async () => {
+    const res = await app.request('/api/v1/forms/testForm123/schema');
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(MOCK_DEFINITION.schema);
+  });
+
+  test('returns 404 for an unregistered formId', async () => {
+    const res = await app.request('/api/v1/forms/unknown/schema');
+    expect(res.status).toBe(404);
+    const json = await res.json() as { error: string };
+    expect(json.error).toBe('Form not found');
+  });
+
+  // A Turnstile-protected form's schema describes the body POSTed to this
+  // proxy, not the Google Form, so turnstile_token belongs in what a client
+  // reads back here — otherwise it would build a submission the validator
+  // rejects.
+  test('keeps turnstile_token in a Turnstile-protected form\'s schema', async () => {
+    const res = await app.request('/api/v1/forms/turnstileForm/schema');
+    expect(res.status).toBe(200);
+    const schema = await res.json() as {
+      properties: Record<string, unknown>;
+      required: string[];
+    };
+    expect(schema.properties).toHaveProperty('turnstile_token');
+    expect(schema.required).toContain('turnstile_token');
+  });
+
+  // The point of this endpoint (issue #9): a registered form's schema is
+  // already bundled into the Worker, so serving it must cost Google nothing.
+  test('makes no outbound request', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    const res = await app.request('/api/v1/forms/testForm123/schema');
+    expect(res.status).toBe(200);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('removed routes', () => {
+  // The Worker no longer performs live schema extraction (ADR 0007). These
+  // assertions keep the route from being reintroduced by accident, and pin the
+  // JSON 404 shape — Hono's default 404 is plain text, which would be the only
+  // non-JSON response this API emits.
+  test.each([
+    ['GET', '/schema?url=https://docs.google.com/forms/d/e/abc/viewform'],
+    ['GET', '/'],
+  ])('%s %s returns a JSON 404', async (method, path) => {
+    const res = await app.request(path, { method });
+    expect(res.status).toBe(404);
+    expect(res.headers.get('Content-Type')).toContain('application/json');
+    const json = await res.json() as { error: string };
+    expect(json.error).toBe('Not found');
+  });
+
+  test('POST /schema returns a JSON 404', async () => {
+    const res = await app.request('/schema', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: 'https://docs.google.com/forms/d/e/abc/viewform' }),
+    });
+    expect(res.status).toBe(404);
+    const json = await res.json() as { error: string };
+    expect(json.error).toBe('Not found');
+  });
+
+  test('neither /schema route reaches Google', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    await app.request('/schema?url=https://docs.google.com/forms/d/e/abc/viewform');
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
