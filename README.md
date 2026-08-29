@@ -73,7 +73,7 @@ To let the Worker accept submissions for the form, register it: add a JSON impor
 
 ### API
 
-The Worker serves registered forms only. It has two routes; anything else answers `404` with `{ "error": "Not found" }`.
+The Worker serves registered forms only. It has two routes; anything else answers `404` with `{ "error": "Not found" }`. CORS preflights are the one exception: `OPTIONS` is answered by the CORS middleware before routing and returns `204` on any path, since a route-aware preflight would reveal whether a `formId` is registered. The real request that follows still gets the 404.
 
 `GET /api/v1/forms/:formId/schema` returns the registered form's JSON Schema (Draft 2020-12) straight from the bundle, making no request to Google. Responses:
 

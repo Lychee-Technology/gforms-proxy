@@ -58,6 +58,13 @@ is JSON, an `app.notFound` handler returns `404 {"error": "Not found"}`. That
 wording stays deliberately distinct from `Form not found`, so a caller can tell
 a mistyped path from an unregistered form.
 
+That covers real requests. A CORS preflight is answered by the `cors()`
+middleware before routing, so `OPTIONS` returns `204` on every path, matched or
+not. This is kept deliberately: a preflight negotiates transport, not resource
+existence, and a route-aware one would tell any origin whether a given `formId`
+is registered — a disclosure the endpoint itself does not make without the
+request that follows. That request still receives the JSON 404.
+
 Turning a form into a schema remains `scripts/gen-field-mapping.ts`'s job, run
 offline. Registration is still manual (ADR 0001).
 
@@ -84,6 +91,13 @@ URL-hardening code with no runtime caller should not conclude it is dead.
 **Clients embedding a registered form must call the new endpoint.** Nothing was
 calling `/schema`, so this broke no deployed caller, but the removal is a
 breaking change to the public surface for anyone who finds the old README.
+
+**Three earlier ADRs describe `/schema` as live.** ADR 0001 ("the `/schema`
+endpoints remain stateless and work on any public form"), ADR 0004 (twice, as
+the alternative to the CLI's removed stdout mode) and ADR 0006 ("`GET/POST
+/schema` is a description of the form's real validation rules") each carry an
+amendment note pointing here. None of their decisions changes; only statements
+about a route that no longer exists.
 
 **A form that is not registered can no longer be inspected over HTTP.** Reading
 an arbitrary public form's structure now means running the generator locally.

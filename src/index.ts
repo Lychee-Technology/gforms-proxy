@@ -138,6 +138,12 @@ app.post('/api/v1/forms/:formId/responses', async (c) => {
 // would make an unmatched route the one response a client has to parse
 // differently. "Not found" (no such route) stays distinct from "Form not
 // found" (route matched, form unregistered).
+//
+// This covers real requests only. A CORS preflight is answered by the cors()
+// middleware above before routing, so OPTIONS is 204 on every path, matched or
+// not — deliberately, since a route-aware preflight would tell any origin
+// whether a formId is registered. The request that follows it still lands
+// here.
 app.notFound((c) => c.json({ error: 'Not found' }, 404));
 
 export default app;
