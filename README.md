@@ -80,11 +80,12 @@ The Worker serves registered forms only. It has two routes; anything else answer
 - `200`: the JSON Schema object itself. For a Turnstile-protected form the schema includes a required `turnstile_token` property — it describes the body you POST to this proxy, not the Google Form
 - `404`: the `formId` is not registered
 
-`POST /api/v1/forms/:formId/responses` accepts a JSON body for a pre-registered form, validates it against the stored schema, verifies Turnstile when the definition requires it, and forwards the data to Google's `formResponse` endpoint. Responses:
+`POST /api/v1/forms/:formId/responses` accepts a JSON body for a pre-registered form, validates it against the stored schema, verifies Turnstile when the definition requires it, and forwards the data to Google's `formResponse` endpoint. The body is capped at 64 KB — far above any plausible form response, and low enough that no caller can size the work the Worker does inside its CPU budget. Responses:
 
 - `200`: `{ "success": true }` once Google accepts the submission
 - `400`: `{ "error": "Validation failed", "details": [{ "field": "...", "message": "..." }] }` when the body violates the schema; an invalid JSON body, a missing/non-string `turnstile_token`, or a rejected Turnstile token also gets a 400. Two more cases reach a 400 without any `details` array, carrying only `{ "error": "..." }`: a field value this proxy cannot serialize (the message names the field), and a submission Google itself rejects — Google answers `formResponse` with a rendered HTML page rather than machine-readable errors, so there is no field-level detail to pass on. A regex rule is enforced by Google, not here, so a violation arrives this way (see `docs/adr/0006-google-enforces-patterns-not-us.md`). Google answering 413 also becomes a 400, with a message about the size of the payload rather than the form's validation rules
 - `404`: the `formId` is not registered
+- `413`: `{ "error": "Request body too large" }` when the body exceeds 64 KB. This is the proxy's own cap and is checked before anything else, so an oversized body gets a 413 even when the `formId` is not registered. Not to be confused with the 400 above, which is Google rejecting a payload this proxy already accepted
 - `502`: Google did not accept the request for a reason that is not the caller's payload — any other 4xx (the message names the upstream status; the form may be unavailable, restricted, or rate limited) — or the submission failed outright, on a Google 5xx or a network failure
 - `503`: `{ "error": "Turnstile verification is temporarily unavailable" }` when Turnstile verification cannot be performed — the `TURNSTILE_SECRET_KEY` secret is not configured, or the siteverify service is unreachable or misbehaving
 
