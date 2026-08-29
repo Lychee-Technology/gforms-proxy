@@ -105,6 +105,8 @@ description of the form's real validation rules for API consumers, and those
 rules still exist and are still enforced — by Google. We stop enforcing
 `pattern`; we do not stop describing it.
 
+> **Amended 2026-08-28 by [ADR 0007](0007-no-live-schema-extraction-at-runtime.md):** `GET/POST /schema` no longer exists. The reasoning above is unaffected — `schema.ts` still emits `pattern`, and the schema that still carries it is now served from the bundle by `GET /api/v1/forms/:formId/schema`. We still describe what we no longer enforce; only the route that does the describing changed.
+
 Every other validator keyword stays: `type`, `required`, `enum`, `const`,
 `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `minLength`,
 `maxLength`, `format`, `minItems`, `maxItems`, `uniqueItems`, `allOf`, `not`,

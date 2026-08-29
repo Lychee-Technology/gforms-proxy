@@ -91,6 +91,16 @@ const { default: app } = await import('../../index.js');
 
 afterEach(() => { vi.restoreAllMocks(); });
 
+// A bare vi.spyOn(globalThis, 'fetch') calls through, so a test asserting "no
+// outbound request" would contact docs.google.com for real if live extraction
+// were ever reintroduced — slow, flaky, and traffic nobody asked for. Failing
+// the call closed keeps the regression local to the test run.
+function noOutboundFetch() {
+  return vi
+    .spyOn(globalThis, 'fetch')
+    .mockRejectedValue(new Error('unexpected outbound fetch'));
+}
+
 describe('POST /api/v1/forms/:formId/responses', () => {
   test('returns 404 for unknown formId', async () => {
     const res = await app.request('/api/v1/forms/unknown/responses', {
@@ -340,5 +350,101 @@ describe('POST /api/v1/forms/:formId/responses (Turnstile-enabled form)', () => 
     expect(res.status).toBe(200);
     const json = await res.json() as { success: boolean };
     expect(json.success).toBe(true);
+  });
+});
+
+describe('GET /api/v1/forms/:formId/schema', () => {
+  test('returns the bundled schema for a registered form', async () => {
+    const res = await app.request('/api/v1/forms/testForm123/schema');
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(MOCK_DEFINITION.schema);
+  });
+
+  test('returns 404 for an unregistered formId', async () => {
+    const res = await app.request('/api/v1/forms/unknown/schema');
+    expect(res.status).toBe(404);
+    const json = await res.json() as { error: string };
+    expect(json.error).toBe('Form not found');
+  });
+
+  // A Turnstile-protected form's schema describes the body POSTed to this
+  // proxy, not the Google Form, so turnstile_token belongs in what a client
+  // reads back here — otherwise it would build a submission the validator
+  // rejects.
+  test('keeps turnstile_token in a Turnstile-protected form\'s schema', async () => {
+    const res = await app.request('/api/v1/forms/turnstileForm/schema');
+    expect(res.status).toBe(200);
+    const schema = await res.json() as {
+      properties: Record<string, unknown>;
+      required: string[];
+    };
+    expect(schema.properties).toHaveProperty('turnstile_token');
+    expect(schema.required).toContain('turnstile_token');
+  });
+
+  // The point of this endpoint (issue #9): a registered form's schema is
+  // already bundled into the Worker, so serving it must cost Google nothing.
+  test('makes no outbound request', async () => {
+    const fetchSpy = noOutboundFetch();
+    const res = await app.request('/api/v1/forms/testForm123/schema');
+    expect(res.status).toBe(200);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('removed routes', () => {
+  // The Worker no longer performs live schema extraction (ADR 0007). These
+  // assertions keep the route from being reintroduced by accident, and pin the
+  // JSON 404 shape — Hono's default 404 is plain text, which would be the only
+  // non-JSON response this API emits.
+  test.each([
+    ['GET', '/schema?url=https://docs.google.com/forms/d/e/abc/viewform'],
+    ['GET', '/'],
+  ])('%s %s returns a JSON 404', async (method, path) => {
+    const res = await app.request(path, { method });
+    expect(res.status).toBe(404);
+    expect(res.headers.get('Content-Type')).toContain('application/json');
+    const json = await res.json() as { error: string };
+    expect(json.error).toBe('Not found');
+  });
+
+  test('POST /schema returns a JSON 404', async () => {
+    const res = await app.request('/schema', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: 'https://docs.google.com/forms/d/e/abc/viewform' }),
+    });
+    expect(res.status).toBe(404);
+    const json = await res.json() as { error: string };
+    expect(json.error).toBe('Not found');
+  });
+
+  // CORS preflight is answered by the cors() middleware before routing, so it
+  // is 204 for every path, matched or not. That is deliberate: a preflight
+  // negotiates transport, not resource existence, and making it route-aware
+  // would tell any origin whether a formId is registered. The real request
+  // that follows still gets the JSON 404.
+  test.each([
+    '/schema',
+    '/',
+    '/api/v1/forms/unknown/schema',
+  ])('OPTIONS %s is answered by CORS with 204, not the JSON 404', async (path) => {
+    const res = await app.request(path, {
+      method: 'OPTIONS',
+      headers: { Origin: 'https://example.com', 'Access-Control-Request-Method': 'GET' },
+    });
+    expect(res.status).toBe(204);
+    expect(res.headers.get('Access-Control-Allow-Origin')).toBe('*');
+  });
+
+  test('neither /schema route reaches Google', async () => {
+    const fetchSpy = noOutboundFetch();
+    await app.request('/schema?url=https://docs.google.com/forms/d/e/abc/viewform');
+    await app.request('/schema', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: 'https://docs.google.com/forms/d/e/abc/viewform' }),
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

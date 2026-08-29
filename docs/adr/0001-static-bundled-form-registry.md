@@ -14,6 +14,8 @@ Each supported form is described by a `FormDefinition` JSON file checked into `s
 
 The `/schema` endpoints remain stateless and work on any public form; only the submission path requires pre-registration.
 
+> **Amended 2026-08-28 by [ADR 0007](0007-no-live-schema-extraction-at-runtime.md):** the `/schema` endpoints no longer exist. Every route now requires pre-registration, and reading a registered form's schema is served from this same bundled registry via `GET /api/v1/forms/:formId/schema`. The decision recorded here is unchanged — the registry simply serves reads as well as submissions now.
+
 ## Consequences
 
 - The Worker needs no storage bindings and does no reads at runtime. A form definition is exactly as current as the last deploy, with no eventual-consistency questions to reason about.

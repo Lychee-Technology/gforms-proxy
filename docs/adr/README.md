@@ -10,5 +10,8 @@ These ADRs record the decisions made in the project's design specs, whose workin
 | [0004](0004-cli-writes-form-definition-to-fixed-path.md) | CLI always writes FormDefinition to `src/forms/<formId>.json` |
 | [0005](0005-backtracking-free-pattern-matcher.md) | Backtracking-free matcher for Google Forms patterns (superseded by 0006) |
 | [0006](0006-google-enforces-patterns-not-us.md) | Google enforces `pattern`, not us |
+| [0007](0007-no-live-schema-extraction-at-runtime.md) | Worker serves registered forms only; no live schema extraction |
 
 To add an ADR: copy the format (Status / Date / Source, then Context / Decision / Consequences), take the next number, and add a row here.
+
+When a new ADR invalidates a *statement* in an older one without overturning its decision, leave the original text alone and add a dated amendment note beside it (`> **Amended <date> by ADR NNNN:** …`), as ADRs 0001, 0004 and 0006 carry for ADR 0007. Change an ADR's `Status` to `Superseded by ADR NNNN` only when the whole decision is replaced, as ADR 0005 was by 0006.
