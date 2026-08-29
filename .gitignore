@@ -140,4 +140,8 @@ vite.config.ts.timestamp-*
 
 # Wrangler local dev cache
 .wrangler/
+
+# Local agent working directories. Non-code artifacts produced here are shared
+# as issue/PR comments, not by force-adding these paths (AGENTS.md).
 docs/superpowers/
+.superpowers/
