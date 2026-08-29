@@ -133,7 +133,11 @@ describe('verifyTurnstile — outbound timeout (#10)', () => {
     expect((err as Error).message).toMatch(/timed out/i);
   });
 
-  test('surfaces a timeout during the body read as TurnstileServiceError', async () => {
+  // The deadline stays live through the body read, so the abort can land after
+  // the headers arrive. The status was always right, but the message read
+  // "non-JSON response", which sends a reader after a payload bug that is not
+  // there (PR #33, F1).
+  test('names the timeout when the abort lands during the body read', async () => {
     const timeout = new Error('The operation was aborted due to timeout');
     timeout.name = 'TimeoutError';
     vi.spyOn(globalThis, 'fetch').mockResolvedValue({
@@ -145,5 +149,20 @@ describe('verifyTurnstile — outbound timeout (#10)', () => {
     const err = await verifyTurnstile('token', SECRET).catch((e: unknown) => e);
 
     expect(err).toBeInstanceOf(TurnstileServiceError);
+    expect((err as Error).message).toMatch(/timed out/i);
+    expect((err as Error).message).not.toMatch(/non-JSON/i);
+  });
+
+  test('still reports a genuinely malformed body as a non-JSON response', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.reject(new SyntaxError('Unexpected token < in JSON')),
+    } as unknown as Response);
+
+    const err = await verifyTurnstile('token', SECRET).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(TurnstileServiceError);
+    expect((err as Error).message).toMatch(/non-JSON/i);
   });
 });

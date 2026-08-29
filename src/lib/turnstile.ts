@@ -63,7 +63,16 @@ export async function verifyTurnstile(
   let payload: unknown;
   try {
     payload = await response.json();
-  } catch {
+  } catch (err) {
+    // The deadline stays live through the body read, so the abort can land
+    // after the headers arrive. Both outcomes are a 503 either way, but
+    // reporting a timeout as "non-JSON" sends a reader after a payload bug
+    // that is not there.
+    if (isTimeoutError(err)) {
+      throw new TurnstileServiceError(
+        `Timed out after ${FETCH_TIMEOUT_MS}ms reading the Turnstile siteverify response body`,
+      );
+    }
     throw new TurnstileServiceError('Turnstile siteverify returned a non-JSON response');
   }
 
