@@ -1,12 +1,17 @@
-import { describe, test, expect } from 'vitest';
+import { describe, test, expect, vi, afterEach } from 'vitest';
 import {
   extractFormTitle,
   extractFormId,
   validateFormUrl,
   parseFormHtml,
+  fetchFormHtml,
   FormParseError,
   FormFetchError,
 } from '../parser.js';
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 const MINIMAL_PAYLOAD = JSON.stringify([
   null,
@@ -111,5 +116,61 @@ describe('parseFormHtml', () => {
     const emptyPayload = JSON.stringify([null, [null, []]]);
     const html = `<html><script>var FB_PUBLIC_LOAD_DATA_ = ${emptyPayload};\n</script></html>`;
     expect(() => parseFormHtml(html, VALID_URL)).toThrow(FormParseError);
+  });
+});
+
+// fetchFormHtml runs in the CLI generator, not the Worker (ADR 0007), so the
+// timeout bounds a build-time run rather than a request. It is still the same
+// contract: an upstream that never answers must not hang forever.
+describe('fetchFormHtml — outbound timeout (#10)', () => {
+  const timeoutError = () => {
+    const err = new Error('The operation was aborted due to timeout');
+    err.name = 'TimeoutError';
+    return err;
+  };
+
+  test('attaches a live AbortSignal to the request', async () => {
+    let capturedSignal: unknown = undefined;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
+      capturedSignal = init?.signal;
+      return new Response(MINIMAL_HTML, { status: 200 });
+    });
+
+    await fetchFormHtml(VALID_URL);
+
+    expect(capturedSignal).toBeInstanceOf(AbortSignal);
+    expect((capturedSignal as AbortSignal).aborted).toBe(false);
+  });
+
+  test('surfaces a timeout as FormFetchError', async () => {
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(timeoutError());
+
+    const err = await fetchFormHtml(VALID_URL).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(FormFetchError);
+    expect((err as Error).message).toMatch(/timed out/i);
+  });
+
+  // The signal stays live through the body read, so an abort can land after
+  // the response headers arrive. That must not escape as a raw DOMException.
+  test('surfaces a failure during the body read as FormFetchError', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: () => Promise.reject(timeoutError()),
+    } as unknown as Response);
+
+    const err = await fetchFormHtml(VALID_URL).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(FormFetchError);
+  });
+
+  test('still reports a plain network failure as a network failure', async () => {
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new TypeError('fetch failed'));
+
+    const err = await fetchFormHtml(VALID_URL).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(FormFetchError);
+    expect((err as Error).message).toMatch(/network error/i);
   });
 });

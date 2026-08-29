@@ -1,3 +1,5 @@
+import { FETCH_TIMEOUT_MS, isTimeoutError } from './fetch-timeout.js';
+
 // Where the failure came from. 'upstream' is anything Google answered or a
 // network failure reaching it; 'invalid-value' is a value this proxy refused to
 // serialize before any request was made. The route maps the two differently.
@@ -56,8 +58,16 @@ export async function submitToGoogleForms(
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body,
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
-  } catch {
+  } catch (err) {
+    // Both paths are 'upstream' with no statusCode, which is what makes the
+    // route answer 502 rather than blaming the caller's payload.
+    if (isTimeoutError(err)) {
+      throw new SubmissionError(
+        `Timed out after ${FETCH_TIMEOUT_MS}ms waiting for Google Forms`,
+      );
+    }
     throw new SubmissionError('Network error: could not reach Google Forms');
   }
 

@@ -8,6 +8,7 @@ import {
   regexValidationTypes,
 } from './types.js';
 import type { ValidationInfo } from './types.js';
+import { FETCH_TIMEOUT_MS, isTimeoutError } from './fetch-timeout.js';
 
 export class FormFetchError extends Error {
   constructor(
@@ -42,7 +43,11 @@ export function validateFormUrl(url: string): void {
   }
 }
 
+// Build-time only: this runs in the CLI generator, never in the Worker
+// (ADR 0007), so the timeout bounds a generation run rather than a request.
 export async function fetchFormHtml(url: string): Promise<string> {
+  const signal = AbortSignal.timeout(FETCH_TIMEOUT_MS);
+
   let response: Response;
   try {
     response = await fetch(url, {
@@ -50,14 +55,30 @@ export async function fetchFormHtml(url: string): Promise<string> {
         'User-Agent': 'Mozilla/5.0 (compatible; gforms-proxy/1.0)',
         Accept: 'text/html',
       },
+      signal,
     });
   } catch (err) {
+    if (isTimeoutError(err)) {
+      throw new FormFetchError(`Timed out after ${FETCH_TIMEOUT_MS}ms fetching the form`);
+    }
     throw new FormFetchError('Network error: could not reach Google Forms');
   }
   if (!response.ok) {
     throw new FormFetchError(`Failed to fetch form: HTTP ${response.status}`, response.status);
   }
-  return response.text();
+  // The deadline stays live through the body read, so an abort can land after
+  // the headers arrive. Without this catch it would escape as a raw
+  // DOMException — the one failure here that is not a FormFetchError.
+  try {
+    return await response.text();
+  } catch (err) {
+    if (isTimeoutError(err)) {
+      throw new FormFetchError(
+        `Timed out after ${FETCH_TIMEOUT_MS}ms reading the form response body`,
+      );
+    }
+    throw new FormFetchError('Network error: could not read the form response body');
+  }
 }
 
 export function extractFormTitle(html: string): string {

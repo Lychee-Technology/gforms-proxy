@@ -166,3 +166,45 @@ describe('submitToGoogleForms — HTTP behavior', () => {
     ).rejects.toMatchObject({ statusCode: undefined, kind: 'upstream' });
   });
 });
+
+describe('submitToGoogleForms — outbound timeout (#10)', () => {
+  test('attaches a live AbortSignal to the request', async () => {
+    let capturedSignal: unknown = undefined;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
+      capturedSignal = init?.signal;
+      return new Response('', { status: 200 });
+    });
+
+    await submitToGoogleForms(SUBMISSION_URL, FIELD_MAP, { full_name: 'Alice' });
+
+    expect(capturedSignal).toBeInstanceOf(AbortSignal);
+    expect((capturedSignal as AbortSignal).aborted).toBe(false);
+  });
+
+  test('surfaces a timeout as an upstream SubmissionError, not an unhandled throw', async () => {
+    const timeout = new Error('The operation was aborted due to timeout');
+    timeout.name = 'TimeoutError';
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(timeout);
+
+    const err = await submitToGoogleForms(SUBMISSION_URL, FIELD_MAP, { full_name: 'Alice' }).catch(
+      (e: unknown) => e,
+    );
+
+    expect(err).toBeInstanceOf(SubmissionError);
+    expect((err as SubmissionError).message).toMatch(/timed out/i);
+    // These two are what pin the route's answer to 502 rather than 400.
+    expect((err as SubmissionError).kind).toBe('upstream');
+    expect((err as SubmissionError).statusCode).toBeUndefined();
+  });
+
+  test('still reports a plain network failure as a network failure', async () => {
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new TypeError('fetch failed'));
+
+    const err = await submitToGoogleForms(SUBMISSION_URL, FIELD_MAP, { full_name: 'Alice' }).catch(
+      (e: unknown) => e,
+    );
+
+    expect(err).toBeInstanceOf(SubmissionError);
+    expect((err as SubmissionError).message).toMatch(/network error/i);
+  });
+});

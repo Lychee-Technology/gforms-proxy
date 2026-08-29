@@ -1,3 +1,5 @@
+import { FETCH_TIMEOUT_MS, isTimeoutError } from './fetch-timeout.js';
+
 const SITEVERIFY_URL = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
 
 /** The token itself was rejected — the caller should answer 400. */
@@ -37,8 +39,20 @@ export async function verifyTurnstile(
 
   let response: Response;
   try {
-    response = await fetch(SITEVERIFY_URL, { method: 'POST', body: params });
-  } catch {
+    response = await fetch(SITEVERIFY_URL, {
+      method: 'POST',
+      body: params,
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
+  } catch (err) {
+    // A timeout is a verification we could not perform, not a bad token: it
+    // stays a TurnstileServiceError, so the route answers 503 and never
+    // rejects a caller whose token may well have been valid.
+    if (isTimeoutError(err)) {
+      throw new TurnstileServiceError(
+        `Timed out after ${FETCH_TIMEOUT_MS}ms waiting for Turnstile siteverify`,
+      );
+    }
     throw new TurnstileServiceError('Network error: could not reach Turnstile siteverify');
   }
 
@@ -49,7 +63,16 @@ export async function verifyTurnstile(
   let payload: unknown;
   try {
     payload = await response.json();
-  } catch {
+  } catch (err) {
+    // The deadline stays live through the body read, so the abort can land
+    // after the headers arrive. Both outcomes are a 503 either way, but
+    // reporting a timeout as "non-JSON" sends a reader after a payload bug
+    // that is not there.
+    if (isTimeoutError(err)) {
+      throw new TurnstileServiceError(
+        `Timed out after ${FETCH_TIMEOUT_MS}ms reading the Turnstile siteverify response body`,
+      );
+    }
     throw new TurnstileServiceError('Turnstile siteverify returned a non-JSON response');
   }
 

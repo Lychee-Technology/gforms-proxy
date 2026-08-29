@@ -31,10 +31,6 @@ export interface FieldSchemaDetail {
 
 export type JsonSchemaProperty = Record<string, unknown>;
 
-export interface FormMeta {
-  translated: string;
-}
-
 export interface FieldMeta {
   title: string;
   key: string;
