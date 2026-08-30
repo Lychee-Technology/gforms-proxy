@@ -2,9 +2,11 @@ import type { FieldDetail } from '../src/lib/types.js';
 
 /**
  * Question types the pipeline cannot submit correctly yet: the submitter
- * would serialize a grid object as "[object Object]", and date/time need
- * entry.X_year/_month/_day parameters the submitter never sends. Refuse to
- * generate a definition containing them instead of corrupting data (#6).
+ * would serialize a grid object as "[object Object]"; a date answer needs
+ * entry.X_year / entry.X_month / entry.X_day and a time answer needs
+ * entry.X_hour / entry.X_minute, and the submitter sends neither set.
+ * Refuse to generate a definition containing them instead of corrupting
+ * data (#6).
  * The validator itself now checks grid entries (#18) and the date and time
  * formats (#17); submission is what still blocks all four (#23).
  *
