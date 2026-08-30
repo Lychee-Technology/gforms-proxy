@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { bodyLimit } from 'hono/body-limit';
 import { cors } from 'hono/cors';
 import registry from './forms/registry.js';
 import { validate } from './lib/validator.js';
@@ -27,7 +28,37 @@ app.get('/api/v1/forms/:formId/schema', (c) => {
   return c.json(definition.schema);
 });
 
-app.post('/api/v1/forms/:formId/responses', async (c) => {
+// A free Cloudflare Worker gets 10 ms of CPU per request. Everything the
+// submission route does after this point is linear in the request body, and
+// without a cap the caller picks the multiplier: `JSON.parse` below, the
+// `additionalProperties: false` key walk (one error object per unknown key),
+// `uniqueItems`' `JSON.stringify` per array element, `EMAIL_RE` / `URI_RE`
+// over each string, and `encodeURIComponent` over every value in
+// `submitter.ts`. None of those is superlinear — this is not a ReDoS cliff —
+// but 10 ms is the entire budget, so the size of the input is the only thing
+// left to bound (issue #29).
+//
+// `maxLength` and `maxItems` are terminal in `validator.ts` and do bound a
+// field, but only when the generator emitted them; neither registered form
+// carries a `maxLength` today. This bounds the request whether or not they
+// are there.
+//
+// 64 KB is roughly nine times the largest bundled schema and far above any
+// plausible form response. Hono's default over-limit response is plain text,
+// which would put the one non-JSON error in an API where every error is JSON
+// (ADR 0007), so `onError` supplies it.
+//
+// Route middleware, not `app.use('*')`: the schema route carries no body, and
+// a POST to an unmatched path never reads one. One consequence is that an
+// oversized body aimed at an unregistered formId is refused here rather than
+// by the handler's 404. That discloses nothing — the 413 is identical for a
+// registered and an unregistered ID.
+const submissionBodyLimit = bodyLimit({
+  maxSize: 64 * 1024,
+  onError: (c) => c.json({ error: 'Request body too large' }, 413),
+});
+
+app.post('/api/v1/forms/:formId/responses', submissionBodyLimit, async (c) => {
   const formId = c.req.param('formId');
   const definition = registry.get(formId);
   if (!definition) return c.json({ error: 'Form not found' }, 404);

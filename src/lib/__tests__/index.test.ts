@@ -489,3 +489,137 @@ describe('outbound fetch timeouts surface as 502/503 (#10)', () => {
     expect(res.status).toBe(503);
   });
 });
+
+// A free Cloudflare Worker gets 10 ms of CPU per request, and every scan the
+// submission route runs is linear in the body a caller chose the size of
+// (#29). The cap is the bound; these assert it holds on both of Hono's code
+// paths and that it fires before anything expensive runs.
+describe('request body size limit on the submission endpoint (#29)', () => {
+  const LIMIT = 64 * 1024;
+
+  // A single `name` string is the cheapest way to cross the limit without
+  // tripping the validator first: MOCK_DEFINITION constrains it with
+  // minLength: 1 and nothing else, so length alone decides the outcome.
+  const bodyOfSize = (bytes: number) => {
+    const envelope = JSON.stringify({ name: '' }).length;
+    return JSON.stringify({ name: 'x'.repeat(bytes - envelope) });
+  };
+
+  test('a body over the limit is refused with a JSON 413', async () => {
+    const fetchSpy = noOutboundFetch();
+
+    const body = bodyOfSize(LIMIT + 1);
+    const res = await app.request('/api/v1/forms/testForm123/responses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+    });
+
+    expect(res.status).toBe(413);
+    // Hono's default over-limit response is text/plain. Every error this API
+    // emits is JSON (ADR 0007), so the custom onError is load-bearing.
+    expect(res.headers.get('Content-Type')).toContain('application/json');
+    const json = await res.json() as { error: string };
+    expect(json.error).toBe('Request body too large');
+    // The point of the cap is that the work never starts.
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  test('a body just under the limit is still accepted', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('', { status: 200 }));
+
+    const body = bodyOfSize(LIMIT);
+    expect(body.length).toBe(LIMIT);
+
+    const res = await app.request('/api/v1/forms/testForm123/responses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+    });
+
+    expect(res.status).toBe(200);
+  });
+
+  // Without content-length Hono cannot short-circuit on the header: it reads
+  // the stream and counts bytes, then rebuilds the Request for the handler.
+  // That is a different branch entirely, so the header path passing says
+  // nothing about it.
+  test('an oversized streamed body with no content-length is refused too', async () => {
+    const fetchSpy = noOutboundFetch();
+
+    const chunk = new TextEncoder().encode('x'.repeat(8 * 1024));
+    let sent = 0;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (sent >= LIMIT + 8 * 1024) {
+          controller.close();
+          return;
+        }
+        sent += chunk.length;
+        controller.enqueue(chunk);
+      },
+    });
+
+    const res = await app.request('/api/v1/forms/testForm123/responses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: stream,
+      duplex: 'half',
+    } as RequestInit);
+
+    expect(res.status).toBe(413);
+    const json = await res.json() as { error: string };
+    expect(json.error).toBe('Request body too large');
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  // The other half of the streaming branch, and the riskier half: when a
+  // streamed body comes in under the limit Hono rebuilds the Request around
+  // the bytes it buffered, so the handler reads a body that has already been
+  // consumed once. If that rebuild ever broke, every chunked submission would
+  // fail — and the oversized case above would not notice, because it returns
+  // before reaching it.
+  test('an under-limit streamed body with no content-length still reaches Google', async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response('', { status: 200 }));
+
+    const payload = new TextEncoder().encode(JSON.stringify({ name: 'Alice' }));
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(payload);
+        controller.close();
+      },
+    });
+
+    const res = await app.request('/api/v1/forms/testForm123/responses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: stream,
+      duplex: 'half',
+    } as RequestInit);
+
+    expect(res.status).toBe(200);
+    expect(fetchSpy).toHaveBeenCalledOnce();
+  });
+
+  // The limit is route middleware, so it runs before the handler looks the
+  // form up. An oversized body aimed at an unregistered ID gets 413, not the
+  // usual 404. That discloses nothing — the 413 is identical either way —
+  // and pinning it here keeps it a decision rather than a surprise.
+  test('an oversized body to an unregistered formId is refused before the 404', async () => {
+    const res = await app.request('/api/v1/forms/unknown/responses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: bodyOfSize(LIMIT + 1),
+    });
+
+    expect(res.status).toBe(413);
+  });
+
+  // The schema route carries no body, so the cap does not belong on it.
+  test('the schema route is unaffected', async () => {
+    const res = await app.request('/api/v1/forms/testForm123/schema');
+    expect(res.status).toBe(200);
+  });
+});
