@@ -12,13 +12,18 @@ The submission endpoint validates request bodies against each form's JSON Schema
 
 Write a purpose-built validator (`src/lib/validator.ts`) with no external dependencies, targeting the keyword subset `schema.ts` emits. It currently validates:
 
-`type`, `required`, `enum`, `const`, `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `minLength`, `maxLength`, `format` (email and uri only), `minItems`, `maxItems`, `uniqueItems`, `allOf`, `not`, `anyOf`
+`type`, `required`, `enum`, `const`, `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `minLength`, `maxLength`, `format` (email, uri, date and time — the four values `schema.ts` emits), `minItems`, `maxItems`, `uniqueItems`, `allOf`, `not`, `anyOf`
 
 Three keywords are terminal for their property: a `type` mismatch stops further checks on that value; a `maxItems` violation stops before the `uniqueItems` dedupe, per-item `items` scan, and any `allOf`/`anyOf` combinators, so an oversized array costs one length comparison instead of work proportional to attacker-chosen length; and a `maxLength` violation stops before the `format` check and those same combinators, so an oversized string costs one comparison too.
 
-Two known gaps where the generator emits constructs the validator does not fully check:
+`format: date` is RFC 3339 `full-date`: `YYYY-MM-DD`, plus a calendar check, so `2026-02-30` and a February 29 in a non-leap year are rejected rather than forwarded.
 
-- `format: date` and `format: time` on date/time questions pass through unvalidated (#17).
+`format: time` deliberately is **not** Draft 2020-12's `time` (RFC 3339 `full-time`), which requires seconds and a UTC offset. It accepts `HH:MM` and nothing else. A Google Forms time answer is submitted as `entry.X_hour` / `entry.X_minute` (#23): there is no component to carry seconds or an offset, so accepting `09:30:15` or `14:30:00Z` would mean quietly dropping part of what the caller sent — the silent-corruption class #6 was opened about. A visible 400 naming the field is the better failure. If #23's submitter work ever adds a seconds component, this is the check that must widen with it. The goal here is to stop an arbitrary string reaching Google, not to become a conformant format registry (#17).
+
+Neither format is reachable at runtime today: `assertSupportedFieldTypes` (`scripts/field-support.ts`) refuses to generate a definition containing a date or time question, so no bundled schema carries either value. The checks close the generator/validator coupling rule below on the same commit that `schema.ts` emits the keyword, rather than leaving it open until #23 lifts the guard.
+
+One known gap remains where the generator emits a construct the validator does not fully check:
+
 - Grid questions become objects with a schema-valued `additionalProperties`, but the validator does not recurse into object entries, so grid values are only checked to be objects (#18).
 
 `pattern` is emitted by `schema.ts` but is not evaluated here. Google Forms patterns are RE2, and Google enforces them server-side: a submission violating only a `regular_expression` rule is answered by `formResponse` with HTTP 400, while an otherwise identical valid one is answered 200 and recorded. That was measured against a live form, so "Google is the final judge" is verified behaviour rather than an assumption. Local evaluation of `pattern` was removed with the matcher that performed it; ADR 0006 records the measurements and the reasoning.

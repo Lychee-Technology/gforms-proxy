@@ -98,6 +98,98 @@ describe('validate — string constraints', () => {
     expect(validate({ url: 'https://example.com' }, schema)).toEqual([]);
   });
 
+  const dateSchema = { type: 'object', properties: { when: { type: 'string', format: 'date' } } };
+
+  test('passes date format', () => {
+    expect(validate({ when: '2026-08-29' }, dateSchema)).toEqual([]);
+  });
+
+  test('passes date format on a leap day', () => {
+    expect(validate({ when: '2024-02-29' }, dateSchema)).toEqual([]);
+  });
+
+  test('fails date format for a non-ISO layout', () => {
+    const errors = validate({ when: '29/08/2026' }, dateSchema);
+    expect(errors).toEqual([{ field: 'when', message: 'must match format: date' }]);
+  });
+
+  test('fails date format for unpadded components', () => {
+    const errors = validate({ when: '2026-8-9' }, dateSchema);
+    expect(errors.some((e) => e.field === 'when')).toBe(true);
+  });
+
+  test('fails date format for a day the month does not have', () => {
+    const errors = validate({ when: '2026-02-30' }, dateSchema);
+    expect(errors.some((e) => e.field === 'when')).toBe(true);
+  });
+
+  test('fails date format for a non-leap February 29', () => {
+    const errors = validate({ when: '2026-02-29' }, dateSchema);
+    expect(errors.some((e) => e.field === 'when')).toBe(true);
+  });
+
+  test('fails date format for an out-of-range month', () => {
+    const errors = validate({ when: '2026-13-01' }, dateSchema);
+    expect(errors.some((e) => e.field === 'when')).toBe(true);
+  });
+
+  test('fails date format for arbitrary text', () => {
+    const errors = validate({ when: 'tomorrow' }, dateSchema);
+    expect(errors.some((e) => e.field === 'when')).toBe(true);
+  });
+
+  const timeSchema = { type: 'object', properties: { at: { type: 'string', format: 'time' } } };
+
+  test('passes time format for HH:MM', () => {
+    expect(validate({ at: '09:30' }, timeSchema)).toEqual([]);
+  });
+
+  test('passes time format at the ends of the range', () => {
+    expect(validate({ at: '00:00' }, timeSchema)).toEqual([]);
+    expect(validate({ at: '23:59' }, timeSchema)).toEqual([]);
+  });
+
+  // A Google Forms time answer is submitted as entry.X_hour / entry.X_minute
+  // (#23) — there is no seconds component to carry a :SS into. Rejecting it
+  // is a visible 400 instead of a silently truncated answer.
+  test('fails time format for a seconds component', () => {
+    const errors = validate({ at: '09:30:00' }, timeSchema);
+    expect(errors).toEqual([{ field: 'at', message: 'must match format: time' }]);
+  });
+
+  test('fails time format for a non-zero seconds component', () => {
+    const errors = validate({ at: '09:30:15' }, timeSchema);
+    expect(errors.some((e) => e.field === 'at')).toBe(true);
+  });
+
+  test('fails time format for an unpadded hour', () => {
+    const errors = validate({ at: '9:30' }, timeSchema);
+    expect(errors).toEqual([{ field: 'at', message: 'must match format: time' }]);
+  });
+
+  test('fails time format for an out-of-range hour', () => {
+    const errors = validate({ at: '24:00' }, timeSchema);
+    expect(errors.some((e) => e.field === 'at')).toBe(true);
+  });
+
+  test('fails time format for an out-of-range minute', () => {
+    const errors = validate({ at: '09:60' }, timeSchema);
+    expect(errors.some((e) => e.field === 'at')).toBe(true);
+  });
+
+  // A Google Forms time question collects hour and minute, so the RFC 3339
+  // offset that Draft 2020-12's `time` requires is rejected rather than
+  // accepted (ADR 0002).
+  test('fails time format for an RFC 3339 offset', () => {
+    const errors = validate({ at: '14:30:00Z' }, timeSchema);
+    expect(errors.some((e) => e.field === 'at')).toBe(true);
+  });
+
+  test('fails time format for arbitrary text', () => {
+    const errors = validate({ at: 'evening' }, timeSchema);
+    expect(errors.some((e) => e.field === 'at')).toBe(true);
+  });
+
 });
 
 describe('validate — number constraints', () => {
@@ -256,6 +348,18 @@ describe('validate — logical combinators', () => {
     expect(errors.some((e) => e.field === 'code')).toBe(true);
   });
 
+  test('allOf: applies date format inside a subschema', () => {
+    const schema = {
+      type: 'object',
+      properties: {
+        when: { type: 'string', allOf: [{ format: 'date' }] },
+      },
+    };
+    expect(validate({ when: '2026-08-29' }, schema)).toEqual([]);
+    const errors = validate({ when: '2026-02-30' }, schema);
+    expect(errors.some((e) => e.field === 'when')).toBe(true);
+  });
+
   test('not: negates constraint', () => {
     const schema = {
       type: 'object',
@@ -346,6 +450,18 @@ describe('validate \u2014 the pattern keyword is not enforced locally', () => {
     const errors = validate({ answer: 'abcdefgh' }, schema);
     expect(errors).toHaveLength(1);
     expect(errors[0]?.message).toContain('at most 3');
+  });
+
+  test('maxLength is terminal ahead of the date format check', () => {
+    const schema = {
+      type: 'object',
+      properties: {
+        when: { type: 'string', maxLength: 5, format: 'date' },
+      },
+    };
+    const errors = validate({ when: 'not-a-date-at-all' }, schema);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]?.message).toContain('at most 5');
   });
 });
 
