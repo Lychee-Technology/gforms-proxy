@@ -12,7 +12,7 @@ The submission endpoint validates request bodies against each form's JSON Schema
 
 Write a purpose-built validator (`src/lib/validator.ts`) with no external dependencies, targeting the keyword subset `schema.ts` emits. It currently validates:
 
-`type`, `required`, `enum`, `const`, `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `minLength`, `maxLength`, `format` (email, uri, date and time — the four values `schema.ts` emits), `minItems`, `maxItems`, `uniqueItems`, `allOf`, `not`, `anyOf`
+`type`, `required`, `enum`, `const`, `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `minLength`, `maxLength`, `format` (email, uri, date and time — the four values `schema.ts` emits), `minItems`, `maxItems`, `uniqueItems`, `additionalProperties` (`false` at the root, and the schema-valued form a grid object carries), `allOf`, `not`, `anyOf`
 
 Three keywords are terminal for their property: a `type` mismatch stops further checks on that value; a `maxItems` violation stops before the `uniqueItems` dedupe, per-item `items` scan, and any `allOf`/`anyOf` combinators, so an oversized array costs one length comparison instead of work proportional to attacker-chosen length; and a `maxLength` violation stops before the `format` check and those same combinators, so an oversized string costs one comparison too.
 
@@ -22,9 +22,11 @@ Three keywords are terminal for their property: a `type` mismatch stops further 
 
 Neither format is reachable at runtime today: `assertSupportedFieldTypes` (`scripts/field-support.ts`) refuses to generate a definition containing a date or time question, so no bundled schema carries either value. The checks close the generator/validator coupling rule below on the same commit that `schema.ts` emits the keyword, rather than leaving it open until #23 lifts the guard.
 
-One known gap remains where the generator emits a construct the validator does not fully check:
+The one known gap is now closed, leaving `pattern` below as the only construct `schema.ts` emits and this validator does not enforce — a deliberate delegation, not an oversight. Grid questions become objects with a schema-valued `additionalProperties`, and every entry of such a value is validated against that schema, with errors named `field.row` (#18). Recursion follows the schema rather than the payload: the inner schema for a grid is `{ type: 'string', enum: [...] }` and carries no `additionalProperties` of its own, so it terminates one level down however deeply a caller nests JSON.
 
-- Grid questions become objects with a schema-valued `additionalProperties`, but the validator does not recurse into object entries, so grid values are only checked to be objects (#18).
+Nested `properties` inside a property schema, and a boolean `additionalProperties` anywhere below the root, are deliberately unimplemented: the generator emits neither, and the coupling rule below asks this validator to track `schema.ts`, not JSON Schema at large.
+
+Like the two formats above, grid checking is not reachable at runtime yet. `assertSupportedFieldTypes` still refuses to generate a definition containing a grid, and `submitter.ts` still refuses to serialize an object value, so submission remains the blocker (#23); the validator no longer is.
 
 `pattern` is emitted by `schema.ts` but is not evaluated here. Google Forms patterns are RE2, and Google enforces them server-side: a submission violating only a `regular_expression` rule is answered by `formResponse` with HTTP 400, while an otherwise identical valid one is answered 200 and recorded. That was measured against a live form, so "Google is the final judge" is verified behaviour rather than an assumption. Local evaluation of `pattern` was removed with the matcher that performed it; ADR 0006 records the measurements and the reasoning.
 

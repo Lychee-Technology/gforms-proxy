@@ -1,11 +1,12 @@
 import type { FieldDetail } from '../src/lib/types.js';
 
 /**
- * Question types the pipeline cannot submit correctly yet: the validator
- * never recurses into grid objects, the submitter would serialize them as
- * "[object Object]", and date/time need entry.X_year/_month/_day parameters
- * the submitter never sends. Refuse to generate a definition containing
- * them instead of corrupting data (#6).
+ * Question types the pipeline cannot submit correctly yet: the submitter
+ * would serialize a grid object as "[object Object]", and date/time need
+ * entry.X_year/_month/_day parameters the submitter never sends. Refuse to
+ * generate a definition containing them instead of corrupting data (#6).
+ * The validator itself now checks grid entries (#18) and the date and time
+ * formats (#17); submission is what still blocks all four (#23).
  *
  * Keep in sync with QUESTION_TYPE_MAP codes 6, 7, 9, 10 (src/lib/types.ts);
  * a test asserts every label here exists in that map.
