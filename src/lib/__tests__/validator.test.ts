@@ -573,4 +573,17 @@ describe('validate — grid objects (schema-valued additionalProperties)', () =>
     const untyped = { type: 'object', properties: { ratings: { type: 'object' } } };
     expect(validate({ ratings: { 'Row 1': 42 } }, untyped)).toEqual([]);
   });
+
+  // `false` below the root reads as "unchecked" here, which is more permissive
+  // than JSON Schema, where it forbids every entry. Only `validate` honours
+  // `additionalProperties: false`, and only at the root. Nothing emits the
+  // nested form, so this pins the deviation rather than the semantics: whoever
+  // makes `schema.ts` emit it has to change this test, and the ADR with it.
+  test('treats a nested additionalProperties: false as unchecked, not as a rejection', () => {
+    const closed = {
+      type: 'object',
+      properties: { ratings: { type: 'object', additionalProperties: false } },
+    };
+    expect(validate({ ratings: { 'Row 1': 42 } }, closed)).toEqual([]);
+  });
 });
