@@ -25,6 +25,33 @@ function checkType(value: unknown, type: string): boolean {
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const URI_RE = /^https?:\/\/.+/;
 
+// RFC 3339 full-date. The regex fixes the layout and the helper does the
+// calendar check the regex cannot: 2026-02-30 and 2026-13-01 are well-formed
+// but not dates.
+const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+// Deliberately NOT Draft 2020-12's `time` (RFC 3339 full-time), which demands
+// seconds and a UTC offset. A Google Forms time answer is submitted as
+// entry.X_hour / entry.X_minute (#23): there is no component to carry seconds
+// or an offset, so accepting `09:30:15` or `14:30:00Z` would mean silently
+// dropping part of what the caller sent. HH:MM only; ADR 0002 records the
+// deviation and #23 must revisit it if a seconds component ever appears.
+const TIME_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
+const DAYS_IN_MONTH = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+function isCalendarDate(value: string): boolean {
+  const match = DATE_RE.exec(value);
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (month < 1 || month > 12 || day < 1) return false;
+  const isLeap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+  const maxDay = month === 2 && isLeap ? 29 : (DAYS_IN_MONTH[month - 1] as number);
+  return day <= maxDay;
+}
+
 // `pattern` is deliberately absent from this validator. Google Forms patterns
 // are RE2, and Google enforces them server-side: a submission that violates
 // only a regex rule comes back from `formResponse` as HTTP 400. Evaluating
@@ -74,6 +101,12 @@ function validateProperty(
     }
     if (format === 'uri' && !URI_RE.test(value)) {
       errors.push({ field, message: 'must match format: uri' });
+    }
+    if (format === 'date' && !isCalendarDate(value)) {
+      errors.push({ field, message: 'must match format: date' });
+    }
+    if (format === 'time' && !TIME_RE.test(value)) {
+      errors.push({ field, message: 'must match format: time' });
     }
   }
 
