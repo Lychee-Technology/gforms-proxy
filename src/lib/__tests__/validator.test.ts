@@ -618,6 +618,20 @@ describe('validate — grid objects (named rows, #23)', () => {
     ]);
   });
 
+  test('additionalProperties: false forbids every key when the schema names no properties', () => {
+    expect(validate({ x: 1 }, { type: 'object', additionalProperties: false })).toEqual([
+      { field: 'x', message: 'additional property not allowed' },
+    ]);
+    const nested = {
+      type: 'object',
+      properties: { ratings: { type: 'object', additionalProperties: false } },
+    };
+    expect(validate({ ratings: { a: 1 } }, nested)).toEqual([
+      { field: 'ratings.a', message: 'additional property not allowed' },
+    ]);
+    expect(validate({ ratings: {} }, nested)).toEqual([]);
+  });
+
   test('a schema without object keywords leaves entries unchecked', () => {
     const loose = { type: 'object', properties: { ratings: { type: 'object' } } };
     expect(validate({ ratings: { anything: 1 } }, loose)).toEqual([]);

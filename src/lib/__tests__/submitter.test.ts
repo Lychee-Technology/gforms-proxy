@@ -127,6 +127,36 @@ describe('submitToGoogleForms — compound encodings (#23)', () => {
   });
 });
 
+describe('submitToGoogleForms — prototype-named keys', () => {
+  // `{}` has no own "constructor", but `{}.constructor` is Object. Reading a
+  // key without an ownership check would send that function's source.
+  test('omits a grid row named like an Object.prototype member when the caller left it out', async () => {
+    const body = captureBody();
+    await submitToGoogleForms(
+      SUBMISSION_URL,
+      { ratings: { kind: 'grid', rows: { constructor: 'entry.1', speed: 'entry.2' } } },
+      { ratings: {} },
+    );
+    expect(body()).toBe('');
+  });
+
+  test('omits a top-level field named like an Object.prototype member when absent', async () => {
+    const body = captureBody();
+    await submitToGoogleForms(SUBMISSION_URL, { constructor: 'entry.9', name: 'entry.1' }, { name: 'A' });
+    expect(body()).toBe('entry.1=A');
+  });
+
+  test('still sends such a key when it is an own property', async () => {
+    const body = captureBody();
+    await submitToGoogleForms(
+      SUBMISSION_URL,
+      { ratings: { kind: 'grid', rows: { constructor: 'entry.1' } } },
+      { ratings: JSON.parse('{"constructor":"Good"}') },
+    );
+    expect(body()).toBe('entry.1=Good');
+  });
+});
+
 describe('submitToGoogleForms — value shape guard', () => {
   const rejects = async (
     fieldMap: Record<string, any>,

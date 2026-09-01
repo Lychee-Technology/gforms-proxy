@@ -103,13 +103,15 @@ function getQuestionTypeLabel(code?: number): string {
 }
 
 // Reads flag `flagIndex` of the flag array at `tupleIndex` of the first
-// entry tuple. Undefined when the array or the flag is absent, so callers can
-// fall back to Google's default for that question rather than guess.
+// entry tuple. Google emits the flags as the numbers 0 and 1; anything else
+// (absent array, absent flag, a string or object) is undefined, so callers
+// fall back to Google's default for that question rather than reading a
+// malformed value as "on".
 function readFlag(entryData: unknown, tupleIndex: number, flagIndex: number): boolean | undefined {
   const flags = (entryData as any)?.[0]?.[tupleIndex];
   if (!Array.isArray(flags)) return undefined;
   const value = flags[flagIndex];
-  return value === undefined || value === null ? undefined : Boolean(value);
+  return typeof value === 'number' ? value !== 0 : undefined;
 }
 
 // Grid, date and time questions carry variants that the type code alone does
@@ -131,20 +133,26 @@ function resolveTypeLabel(typeCode: number | undefined, entryData: unknown): str
 }
 
 // A grid's field[4] holds one tuple per row: [rowEntryId, columns, required,
-// [rowLabel], ...]. Every row needs its own entry ID at submission time.
-function extractGridRows(entryData: unknown): GridRow[] {
+// [rowLabel], ...]. Every row needs its own entry ID at submission time, so a
+// row without one fails the whole generation run rather than being dropped —
+// a definition missing a row would silently never submit that row's answer.
+function extractGridRows(label: string, entryData: unknown): GridRow[] {
   if (!Array.isArray(entryData)) return [];
-  const rows: GridRow[] = [];
-  entryData.forEach((tuple: unknown, idx: number) => {
+  return entryData.map((tuple: unknown, idx: number): GridRow => {
     const id = (tuple as any)?.[0];
-    if (id === undefined || id === null) return;
+    const validId =
+      (typeof id === 'number' && Number.isFinite(id)) || (typeof id === 'string' && id !== '');
+    if (!validId) {
+      throw new FormParseError(
+        `Grid question "${label}" row ${idx + 1} has no entry ID (unexpected form structure)`,
+      );
+    }
     const rawLabel = (tuple as any)?.[3]?.[0];
-    rows.push({
+    return {
       label: typeof rawLabel === 'string' && rawLabel !== '' ? rawLabel : `Row ${idx + 1}`,
       entryId: `entry.${String(id)}`,
-    });
+    };
   });
-  return rows;
 }
 
 function extractOptions(entryData: unknown): string[] {
@@ -275,7 +283,7 @@ export function parseFormHtml(html: string, url: string): RawFormData {
         required: isRequired(entryData),
         validation: extractValidation(entryData),
         helpText: typeof (field as any)?.[2] === 'string' ? (field as any)[2] : undefined,
-        ...(typeCode === GRID_TYPE_CODE ? { rows: extractGridRows(entryData) } : {}),
+        ...(typeCode === GRID_TYPE_CODE ? { rows: extractGridRows(label, entryData) } : {}),
       });
     } else if (label && entryIdValue === undefined) {
       console.warn(`[gforms-proxy] Skipped field "${label}" — no entry ID found (unexpected form structure)`);

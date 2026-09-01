@@ -12,9 +12,7 @@ The submission endpoint validates request bodies against each form's JSON Schema
 
 Write a purpose-built validator (`src/lib/validator.ts`) with no external dependencies, targeting the keyword subset `schema.ts` emits. It currently validates:
 
-`type`, `required`, `enum`, `const`, `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `minLength`, `maxLength`, `format` (email, uri, date and time — the four values `schema.ts` emits), `minItems`, `maxItems`, `uniqueItems`, `additionalProperties` (`false` at the root, and the schema-valued form a grid object carries), `allOf`, `not`, `anyOf`
-
-> **Amended 2026-09-01 by [ADR 0008](0008-compound-questions-through-structured-fieldmap.md):** `properties`, `required` and `additionalProperties: false` now apply at the root and on grid objects alike; the schema-valued `additionalProperties` form is no longer emitted or evaluated.
+`type`, `properties`, `required`, `additionalProperties: false` (the three object keywords, at the root and on grid objects alike), `enum`, `const`, `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `minLength`, `maxLength`, `format` (email, uri, date and time — the four values `schema.ts` emits), `minItems`, `maxItems`, `uniqueItems`, `allOf`, `not`, `anyOf`
 
 Three keywords are terminal for their property: a `type` mismatch stops further checks on that value; a `maxItems` violation stops before the `uniqueItems` dedupe, per-item `items` scan, and any `allOf`/`anyOf` combinators, so an oversized array costs one length comparison instead of work proportional to attacker-chosen length; and a `maxLength` violation stops before the `format` check and those same combinators, so an oversized string costs one comparison too.
 

@@ -249,6 +249,29 @@ describe('parseFormHtml — grid, date and time (#23)', () => {
     expect(fields[0]!.typeLabel).toBe(expected);
   });
 
+  test('rejects a grid row without an entry ID instead of dropping it', () => {
+    const field = structuredClone(GRID_FIELD) as any[];
+    field[4][1][0] = null;
+    expect(() => parseFormHtml(wrap([field]), VALID_URL)).toThrow(FormParseError);
+    expect(() => parseFormHtml(wrap([field]), VALID_URL)).toThrow(/Rate each item.*row 2/);
+  });
+
+  test('rejects a grid row whose entry ID is not a number or string', () => {
+    const field = structuredClone(GRID_FIELD) as any[];
+    field[4][1][0] = [222];
+    expect(() => parseFormHtml(wrap([field]), VALID_URL)).toThrow(FormParseError);
+  });
+
+  test.each([
+    ['date flags that are strings', 9, [[333, null, 0, null, null, null, null, ['0', '0']]], 'date'],
+    ['date flags that are objects', 9, [[333, null, 0, null, null, null, null, [{}, {}]]], 'date'],
+    ['a time flag that is a string', 10, [[444, null, 0, null, null, null, ['1']]], 'time'],
+    ['a grid flag that is a string', 7, [[111, [['Good']], 0, ['Speed'], null, null, null, null, null, null, null, ['1']]], 'multiple_choice_grid'],
+  ])('falls back to the default variant for %s', (_name, code, entries, expected) => {
+    const { fields } = parseFormHtml(wrap([[null, 'Q', '', code, entries]]), VALID_URL);
+    expect(fields[0]!.typeLabel).toBe(expected);
+  });
+
   test('type code 6 is a title block, not a grid', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const { fields } = parseFormHtml(

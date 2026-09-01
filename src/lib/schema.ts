@@ -294,7 +294,8 @@ const buildFieldPropertySchema = (field: FieldSchemaDetail): JsonSchemaProperty 
       return applyValidationToSchema({ ...base, type: 'string', format: 'time' }, field);
     case 'multiple_choice_grid':
     case 'checkbox_grid': {
-      // Rows are named so a consumer of GET /schema can see what to send;
+      // Rows are named so a consumer of GET /api/v1/forms/:formId/schema can
+      // see what to send;
       // the object is closed so an unknown row is a 400, not a silent drop.
       const cell: JsonSchemaProperty = {
         type: 'string',

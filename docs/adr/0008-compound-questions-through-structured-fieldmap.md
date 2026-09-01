@@ -31,8 +31,8 @@ because the submitter cannot infer it from the value: a short-answer string
 
 A grid property schema names its rows under `properties`, marks them all
 `required` when the question is, and closes the object with
-`additionalProperties: false`, so `GET /schema` tells a consumer exactly what
-to send and an unknown row is a 400 rather than a silent drop. Row keys are
+`additionalProperties: false`, so `GET /api/v1/forms/:formId/schema` tells a
+consumer exactly what to send and an unknown row is a 400 rather than a silent drop. Row keys are
 `normalizeKey(rowLabel, 'row_N')`, deduplicated inside the grid, derived by
 one helper (`resolveRowKeys`) shared by the schema and the fieldMap. A
 checkbox grid gives each row the checkboxes shape (array, `uniqueItems`,

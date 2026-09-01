@@ -73,8 +73,9 @@ function validateObjectKeywords(
     }
   }
 
-  const properties = schema['properties'];
-  if (!isObject(properties)) return;
+  // No `properties` means no key is named, so `additionalProperties: false`
+  // forbids every key — JSON Schema's reading, not "unchecked".
+  const properties = isObject(schema['properties']) ? schema['properties'] : {};
 
   if (schema['additionalProperties'] === false) {
     for (const key of Object.keys(value)) {

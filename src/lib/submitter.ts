@@ -89,6 +89,9 @@ function pushGrid(
   }
   const cells = value as Record<string, unknown>;
   for (const [rowKey, entryId] of Object.entries(rows)) {
+    // Object.hasOwn, as in the validator: a row keyed "constructor" must not
+    // read Object.prototype.constructor off an empty object and send its source.
+    if (!Object.hasOwn(cells, rowKey)) continue;
     const cell = cells[rowKey];
     if (cell === undefined || cell === null) continue;
     pushScalars(parts, `${key}.${rowKey}`, entryId, cell);
@@ -103,6 +106,8 @@ export async function submitToGoogleForms(
   const parts: string[] = [];
 
   for (const [key, mapping] of Object.entries(fieldMap)) {
+    // Own keys only, for the same reason as the grid rows below.
+    if (!Object.hasOwn(data, key)) continue;
     const value = data[key];
     if (value === undefined || value === null) continue;
 
