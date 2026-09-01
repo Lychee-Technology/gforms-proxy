@@ -1,7 +1,9 @@
 import type {
   FieldDetail,
+  FieldMapping,
   FieldMeta,
   FieldSchemaDetail,
+  GridRow,
   JsonSchemaProperty,
   RawFormData,
 } from './types.js';
@@ -201,14 +203,52 @@ const resolveFieldKeys = (count: number, metas: FieldMeta[]): string[] => {
   return keys;
 };
 
+/**
+ * Row keys for a grid, from the row labels through `normalizeKey`, suffixed
+ * `_2`, `_3`, … on collision inside the grid and `row_N` when a label has no
+ * ASCII to normalize. Shared by buildJsonSchema and buildFieldMap so the
+ * schema's `properties` and the mapping's `rows` can never disagree.
+ */
+export const resolveRowKeys = (rows: GridRow[]): string[] => {
+  const seen = new Set<string>();
+  return rows.map((row, idx) => {
+    const base = normalizeKey(row.label, `row_${idx + 1}`);
+    let key = base;
+    for (let n = 2; seen.has(key); n++) key = `${base}_${n}`;
+    seen.add(key);
+    return key;
+  });
+};
+
+const isGridLabel = (typeLabel: string) =>
+  typeLabel === 'multiple_choice_grid' || typeLabel === 'checkbox_grid';
+
+// The wire encoding a schema key needs (ADR 0008). Only the labels the
+// submitter treats specially get an object; everything else keeps the
+// original one-parameter string form.
+const toFieldMapping = (field: FieldDetail): FieldMapping => {
+  if (field.typeLabel === 'date') return { kind: 'date', entryId: field.entryId };
+  if (field.typeLabel === 'time') return { kind: 'time', entryId: field.entryId };
+  if (isGridLabel(field.typeLabel)) {
+    const rows = field.rows ?? [];
+    const keys = resolveRowKeys(rows);
+    const map: Record<string, string> = {};
+    rows.forEach((row, idx) => {
+      map[keys[idx] ?? `row_${idx + 1}`] = row.entryId;
+    });
+    return { kind: 'grid', rows: map };
+  }
+  return field.entryId;
+};
+
 export function buildFieldMap(
   fields: FieldDetail[],
   metas: FieldMeta[],
-): Record<string, string> {
+): Record<string, FieldMapping> {
   const keys = resolveFieldKeys(fields.length, metas);
-  const map: Record<string, string> = {};
+  const map: Record<string, FieldMapping> = {};
   fields.forEach((field, idx) => {
-    map[keys[idx] ?? `field_${idx + 1}`] = field.entryId;
+    map[keys[idx] ?? `field_${idx + 1}`] = toFieldMapping(field);
   });
   return map;
 }
@@ -253,15 +293,40 @@ const buildFieldPropertySchema = (field: FieldSchemaDetail): JsonSchemaProperty 
     case 'time':
       return applyValidationToSchema({ ...base, type: 'string', format: 'time' }, field);
     case 'multiple_choice_grid':
-    case 'grid':
+    case 'checkbox_grid': {
+      // Rows are named so a consumer of GET /schema can see what to send;
+      // the object is closed so an unknown row is a 400, not a silent drop.
+      const cell: JsonSchemaProperty = {
+        type: 'string',
+        ...(hasOptions ? { enum: field.options } : {}),
+      };
+      const keys = resolveRowKeys(field.rows);
+      const properties: Record<string, JsonSchemaProperty> = {};
+      field.rows.forEach((row, idx) => {
+        const key = keys[idx] ?? `row_${idx + 1}`;
+        properties[key] =
+          field.type === 'checkbox_grid'
+            ? {
+                title: row.label,
+                type: 'array',
+                items: cell,
+                uniqueItems: true,
+                ...(field.required ? { minItems: 1 } : {}),
+                ...(hasOptions ? { maxItems: field.options.length } : {}),
+              }
+            : { title: row.label, ...cell };
+      });
       return applyValidationToSchema(
         {
           ...base,
           type: 'object',
-          additionalProperties: { type: 'string', ...(hasOptions ? { enum: field.options } : {}) },
+          properties,
+          ...(field.required && keys.length ? { required: keys } : {}),
+          additionalProperties: false,
         },
         field,
       );
+    }
     default: {
       const property: JsonSchemaProperty = { ...base, type: 'string' };
       if (field.required) property.minLength = 1;
