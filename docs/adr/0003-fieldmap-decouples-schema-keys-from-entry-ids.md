@@ -16,6 +16,8 @@ A `FormDefinition` separates the three concerns:
 - The schema property `title` holds the original question text, for documentation and error messages.
 - `fieldMap` maps each schema key to its `entry.XXXXXXX` ID. Its keys match `schema.properties` keys exactly.
 
+> **Amended 2026-09-01 by [ADR 0008](0008-compound-questions-through-structured-fieldmap.md):** a value may also be a structured mapping (`{ kind: 'date' | 'time', entryId }` or `{ kind: 'grid', rows }`) for questions Google submits as several parameters. The key invariant is unchanged; only the value grew.
+
 `submissionUrl` is also stored verbatim in the definition; the Worker never constructs Google URLs itself.
 
 At submission time the Worker validates the body against the schema, then translates keys through `fieldMap` and posts `application/x-www-form-urlencoded` to `submissionUrl` (arrays repeat the entry ID once per value; absent optional fields are omitted).

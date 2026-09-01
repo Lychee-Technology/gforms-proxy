@@ -14,6 +14,8 @@ Write a purpose-built validator (`src/lib/validator.ts`) with no external depend
 
 `type`, `required`, `enum`, `const`, `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `minLength`, `maxLength`, `format` (email, uri, date and time — the four values `schema.ts` emits), `minItems`, `maxItems`, `uniqueItems`, `additionalProperties` (`false` at the root, and the schema-valued form a grid object carries), `allOf`, `not`, `anyOf`
 
+> **Amended 2026-09-01 by [ADR 0008](0008-compound-questions-through-structured-fieldmap.md):** `properties`, `required` and `additionalProperties: false` now apply at the root and on grid objects alike; the schema-valued `additionalProperties` form is no longer emitted or evaluated.
+
 Three keywords are terminal for their property: a `type` mismatch stops further checks on that value; a `maxItems` violation stops before the `uniqueItems` dedupe, per-item `items` scan, and any `allOf`/`anyOf` combinators, so an oversized array costs one length comparison instead of work proportional to attacker-chosen length; and a `maxLength` violation stops before the `format` check and those same combinators, so an oversized string costs one comparison too.
 
 `format: date` is RFC 3339 `full-date`: `YYYY-MM-DD`, plus a calendar check, so `2026-02-30` and a February 29 in a non-leap year are rejected rather than forwarded.
@@ -26,7 +28,11 @@ The one known gap is now closed, leaving `pattern` below as the only construct `
 
 Nested `properties` inside a property schema, and a boolean `additionalProperties` anywhere below the root, are deliberately unimplemented: the generator emits neither, and the coupling rule below asks this validator to track `schema.ts`, not JSON Schema at large. Note the direction of that deviation — a nested `additionalProperties: false` reads here as "entries unchecked", where JSON Schema reads it as "no entry allowed", so it is permissive rather than strict. Only `validate` honours `false`, and only at the root. A test pins the deviation so making `schema.ts` emit the nested form has to come through here.
 
+> **Amended 2026-09-01 by [ADR 0008](0008-compound-questions-through-structured-fieldmap.md):** no longer true. A grid is now emitted with named rows under `properties`, `required`, and `additionalProperties: false`, and the validator applies those three keywords to any object value with their JSON Schema meaning, through the same routine the root uses. The schema-valued `additionalProperties` form is no longer emitted or evaluated. Depth still follows the schema.
+
 Like the two formats above, grid checking is not reachable at runtime yet. `assertSupportedFieldTypes` still refuses to generate a definition containing a grid, and `submitter.ts` still refuses to serialize an object value, so submission remains the blocker (#23); the validator no longer is.
+
+> **Amended 2026-09-01 by [ADR 0008](0008-compound-questions-through-structured-fieldmap.md):** grids, `format: date` and `format: time` are now reachable: the generator accepts those questions and the submitter encodes them. The `HH:MM` decision above stands; a duration question (the one Google variant with seconds) is refused at generation instead.
 
 `pattern` is emitted by `schema.ts` but is not evaluated here. Google Forms patterns are RE2, and Google enforces them server-side: a submission violating only a `regular_expression` rule is answered by `formResponse` with HTTP 400, while an otherwise identical valid one is answered 200 and recorded. That was measured against a live form, so "Google is the final judge" is verified behaviour rather than an assumption. Local evaluation of `pattern` was removed with the matcher that performed it; ADR 0006 records the measurements and the reasoning.
 
