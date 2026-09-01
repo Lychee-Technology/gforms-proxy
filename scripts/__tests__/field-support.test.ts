@@ -13,23 +13,23 @@ const field = (label: string, typeCode: number, typeLabel: string): FieldDetail 
 });
 
 describe('assertSupportedFieldTypes', () => {
-  test('passes silently for supported types', () => {
+  test('passes silently for every supported type, grids and dates included', () => {
     expect(() =>
       assertSupportedFieldTypes('form123', [
         field('Name', 0, 'short_answer'),
         field('Choice', 2, 'multiple_choice'),
         field('Tags', 3, 'checkboxes'),
+        field('Rate', 7, 'multiple_choice_grid'),
+        field('Pick', 7, 'checkbox_grid'),
+        field('When', 9, 'date'),
+        field('At', 10, 'time'),
       ]),
     ).not.toThrow();
   });
 
   test.each([
-    ['multiple_choice_grid', 7],
-    ['checkbox_grid', 7],
-    ['date', 9],
     ['date_time', 9],
     ['date_without_year', 9],
-    ['time', 10],
     ['duration', 10],
   ])('throws for %s questions', (typeLabel, typeCode) => {
     expect(() =>
@@ -37,26 +37,18 @@ describe('assertSupportedFieldTypes', () => {
     ).toThrow(/Bad question/);
   });
 
-  test('lists every offending question with its type', () => {
+  test('lists every offending question with its variant', () => {
     expect(() =>
       assertSupportedFieldTypes('form123', [
         field('Name', 0, 'short_answer'),
-        field('Pick a date', 9, 'date'),
-        field('Rate each item', 7, 'multiple_choice_grid'),
+        field('Pick a moment', 9, 'date_time'),
+        field('How long', 10, 'duration'),
       ]),
-    ).toThrow(/Pick a date.*date[\s\S]*Rate each item.*multiple_choice_grid/);
+    ).toThrow(/Pick a moment.*date_time[\s\S]*How long.*duration/);
   });
 
   test('exports the unsupported label set', () => {
-    expect([...UNSUPPORTED_TYPE_LABELS].sort()).toEqual([
-      'checkbox_grid',
-      'date',
-      'date_time',
-      'date_without_year',
-      'duration',
-      'multiple_choice_grid',
-      'time',
-    ]);
+    expect([...UNSUPPORTED_TYPE_LABELS].sort()).toEqual(['date_time', 'date_without_year', 'duration']);
   });
 
   test('every unsupported label is one the parser can emit', () => {
