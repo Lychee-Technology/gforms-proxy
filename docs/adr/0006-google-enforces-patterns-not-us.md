@@ -111,7 +111,12 @@ Every other validator keyword stays: `type`, `required`, `enum`, `const`,
 `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `minLength`,
 `maxLength`, `format`, `minItems`, `maxItems`, `uniqueItems`, `allOf`, `not`,
 `anyOf`. They are microseconds of work on the shapes `schema.ts` emits and
-none of the reasoning above touches them. `maxLength` stays terminal for its
+none of the reasoning above touches them. That list is the subset as of this
+ADR's date, not a running inventory of the validator: it has since learned
+`format: date` and `format: time` (#17) and schema-valued
+`additionalProperties` (#18), and [ADR 0002](0002-hand-rolled-json-schema-validator.md)
+carries the current one. The claim that survives is the one this ADR is about
+— `pattern` is the only keyword it removed. `maxLength` stays terminal for its
 property: it was introduced to bound matcher input, but it is independently
 correct, since an oversized string is already invalid and scanning it further
 is work proportional to an attacker-chosen length.

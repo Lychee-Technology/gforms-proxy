@@ -163,6 +163,27 @@ function validateProperty(
     }
   }
 
+  // Grid questions are the only objects `schema.ts` emits, as
+  // `{type: 'object', additionalProperties: {type: 'string', enum: [...]}}`,
+  // so one shared schema constrains every row's answer. Recursion terminates
+  // at depth 1 because that inner schema carries no `additionalProperties` of
+  // its own: depth follows the schema, not the caller's nesting. The per-entry
+  // work is linear in the body, so it stays inside the route's 64 KB cap and
+  // needs no bound of its own. Nested `properties` and a boolean
+  // `additionalProperties` are deliberately not handled — the generator emits
+  // neither, and the coupling rule in ADR 0002 asks this validator to cover
+  // what `schema.ts` emits, not JSON Schema at large.
+  if (isObject(value)) {
+    const additionalProperties = schema['additionalProperties'];
+    if (isObject(additionalProperties)) {
+      // Object.entries, not for...in: own enumerable keys only, for the same
+      // reason `validate` reaches for Object.hasOwn.
+      for (const [key, entry] of Object.entries(value)) {
+        validateProperty(`${field}.${key}`, entry, additionalProperties, errors);
+      }
+    }
+  }
+
   const allOf = schema['allOf'];
   if (Array.isArray(allOf)) {
     for (const sub of allOf as Schema[]) {

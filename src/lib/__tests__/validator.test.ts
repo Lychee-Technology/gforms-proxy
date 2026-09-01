@@ -526,3 +526,64 @@ describe('validate \u2014 a not-constraint carrying a pattern is skipped', () =>
     expect(validate({ val: 0 }, withoutPattern)).toHaveLength(1);
   });
 });
+
+describe('validate — grid objects (schema-valued additionalProperties)', () => {
+  // The shape schema.ts emits for `grid` / `multiple_choice_grid`: an object
+  // whose every entry is one row's answer, constrained by one shared schema.
+  const schema = {
+    type: 'object',
+    properties: {
+      ratings: {
+        type: 'object',
+        additionalProperties: { type: 'string', enum: ['Yes', 'No'] },
+      },
+    },
+  };
+
+  test('passes a grid whose every entry is an allowed option', () => {
+    expect(validate({ ratings: { 'Row 1': 'Yes', 'Row 2': 'No' } }, schema)).toEqual([]);
+  });
+
+  test('passes an empty grid object', () => {
+    expect(validate({ ratings: {} }, schema)).toEqual([]);
+  });
+
+  test('fails an entry of the wrong type, naming the row', () => {
+    const errors = validate({ ratings: { 'Row 1': 42 } }, schema);
+    expect(errors).toEqual([{ field: 'ratings.Row 1', message: 'must be of type string' }]);
+  });
+
+  test('fails an entry outside the row enum', () => {
+    const errors = validate({ ratings: { 'Row 1': 'Maybe' } }, schema);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]?.field).toBe('ratings.Row 1');
+    expect(errors[0]?.message).toContain('must be one of');
+  });
+
+  test('reports every offending entry, not just the first', () => {
+    const errors = validate({ ratings: { 'Row 1': 'Maybe', 'Row 2': 'Yes', 'Row 3': 42 } }, schema);
+    expect(errors.map((e) => e.field)).toEqual(['ratings.Row 1', 'ratings.Row 3']);
+  });
+
+  // Nested `properties` and a boolean `additionalProperties` on a property
+  // schema are not implemented, because schema.ts emits neither. Entries stay
+  // unchecked there; this pins that boundary so a future generator change has
+  // to come here first (ADR 0002's coupling rule).
+  test('leaves entries unchecked when the property schema has no additionalProperties', () => {
+    const untyped = { type: 'object', properties: { ratings: { type: 'object' } } };
+    expect(validate({ ratings: { 'Row 1': 42 } }, untyped)).toEqual([]);
+  });
+
+  // `false` below the root reads as "unchecked" here, which is more permissive
+  // than JSON Schema, where it forbids every entry. Only `validate` honours
+  // `additionalProperties: false`, and only at the root. Nothing emits the
+  // nested form, so this pins the deviation rather than the semantics: whoever
+  // makes `schema.ts` emit it has to change this test, and the ADR with it.
+  test('treats a nested additionalProperties: false as unchecked, not as a rejection', () => {
+    const closed = {
+      type: 'object',
+      properties: { ratings: { type: 'object', additionalProperties: false } },
+    };
+    expect(validate({ ratings: { 'Row 1': 42 } }, closed)).toEqual([]);
+  });
+});
