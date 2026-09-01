@@ -1,4 +1,5 @@
 import { FETCH_TIMEOUT_MS, isTimeoutError } from './fetch-timeout.js';
+import type { FieldMapping } from './types.js';
 
 // Where the failure came from. 'upstream' is anything Google answered or a
 // network failure reaching it; 'invalid-value' is a value this proxy refused to
@@ -30,7 +31,7 @@ function assertSerializable(key: string, value: unknown): void {
 
 export async function submitToGoogleForms(
   submissionUrl: string,
-  fieldMap: Record<string, string>,
+  fieldMap: Record<string, FieldMapping>,
   data: Record<string, unknown>,
 ): Promise<void> {
   const parts: string[] = [];
@@ -38,6 +39,16 @@ export async function submitToGoogleForms(
   for (const [key, entryId] of Object.entries(fieldMap)) {
     const value = data[key];
     if (value === undefined || value === null) continue;
+
+    // Bridge until the compound encodings land (#23): no bundled definition
+    // carries a structured mapping yet.
+    if (typeof entryId !== 'string') {
+      throw new SubmissionError(
+        `Field "${key}" uses a mapping this submitter does not encode yet`,
+        undefined,
+        'invalid-value',
+      );
+    }
 
     if (Array.isArray(value)) {
       for (const item of value) {

@@ -14,10 +14,13 @@ import type { FieldDetail } from '../src/lib/types.js';
  * a test asserts every label here exists in that map.
  */
 export const UNSUPPORTED_TYPE_LABELS: ReadonlySet<string> = new Set([
-  'grid',
   'multiple_choice_grid',
+  'checkbox_grid',
   'date',
+  'date_time',
+  'date_without_year',
   'time',
+  'duration',
 ]);
 
 export function assertSupportedFieldTypes(formId: string, fields: FieldDetail[]): void {

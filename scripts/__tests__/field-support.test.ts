@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'vitest';
 import { assertSupportedFieldTypes, UNSUPPORTED_TYPE_LABELS } from '../field-support.js';
-import { QUESTION_TYPE_MAP } from '../../src/lib/types.js';
+import { QUESTION_TYPE_MAP, FLAG_DERIVED_TYPE_LABELS } from '../../src/lib/types.js';
 import type { FieldDetail } from '../../src/lib/types.js';
 
 const field = (label: string, typeCode: number, typeLabel: string): FieldDetail => ({
@@ -24,10 +24,13 @@ describe('assertSupportedFieldTypes', () => {
   });
 
   test.each([
-    ['grid', 6],
     ['multiple_choice_grid', 7],
+    ['checkbox_grid', 7],
     ['date', 9],
+    ['date_time', 9],
+    ['date_without_year', 9],
     ['time', 10],
+    ['duration', 10],
   ])('throws for %s questions', (typeLabel, typeCode) => {
     expect(() =>
       assertSupportedFieldTypes('form123', [field('Bad question', typeCode, typeLabel)]),
@@ -46,15 +49,21 @@ describe('assertSupportedFieldTypes', () => {
 
   test('exports the unsupported label set', () => {
     expect([...UNSUPPORTED_TYPE_LABELS].sort()).toEqual([
+      'checkbox_grid',
       'date',
-      'grid',
+      'date_time',
+      'date_without_year',
+      'duration',
       'multiple_choice_grid',
       'time',
     ]);
   });
 
-  test('every unsupported label is a real QUESTION_TYPE_MAP label', () => {
-    const knownLabels = new Set(Object.values(QUESTION_TYPE_MAP));
+  test('every unsupported label is one the parser can emit', () => {
+    const knownLabels = new Set([
+      ...Object.values(QUESTION_TYPE_MAP),
+      ...Object.values(FLAG_DERIVED_TYPE_LABELS),
+    ]);
     for (const label of UNSUPPORTED_TYPE_LABELS) {
       expect(knownLabels).toContain(label);
     }

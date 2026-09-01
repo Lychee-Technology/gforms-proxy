@@ -303,6 +303,7 @@ export function buildJsonSchema(
       required: field.required,
       help_text: field.helpText ?? '',
       validation: field.validation ?? null,
+      rows: field.rows ?? [],
     };
   });
 

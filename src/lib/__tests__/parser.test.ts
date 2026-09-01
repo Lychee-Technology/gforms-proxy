@@ -174,3 +174,87 @@ describe('fetchFormHtml — outbound timeout (#10)', () => {
     expect((err as Error).message).toMatch(/network error/i);
   });
 });
+
+// Payload shapes mirror what python-gforms parses and what the two registered
+// forms return live: a grid carries one tuple per row in field[4]; date and
+// time carry their flags at tuple index 7 and 6 respectively.
+const wrap = (fields: unknown[]) =>
+  `<html><head><title>T - Google Forms</title></head><body><script>var FB_PUBLIC_LOAD_DATA_ = ${JSON.stringify(
+    [null, [null, fields]],
+  )};\n</script></body></html>`;
+
+const GRID_FIELD = [
+  null,
+  'Rate each item',
+  '',
+  7,
+  [
+    [111, [['Good'], ['Bad']], 1, ['Speed'], null, null, null, null, null, null, null, [0]],
+    [222, [['Good'], ['Bad']], 1, ['Price'], null, null, null, null, null, null, null, [0]],
+  ],
+];
+
+describe('parseFormHtml — grid, date and time (#23)', () => {
+  test('captures one entry ID per grid row with its label', () => {
+    const { fields } = parseFormHtml(wrap([GRID_FIELD]), VALID_URL);
+    expect(fields).toHaveLength(1);
+    const grid = fields[0]!;
+    expect(grid.typeLabel).toBe('multiple_choice_grid');
+    expect(grid.entryId).toBe('entry.111');
+    expect(grid.options).toEqual(['Good', 'Bad']);
+    expect(grid.required).toBe(true);
+    expect(grid.rows).toEqual([
+      { label: 'Speed', entryId: 'entry.111' },
+      { label: 'Price', entryId: 'entry.222' },
+    ]);
+  });
+
+  test('labels a grid whose multichoice flag is set as checkbox_grid', () => {
+    const field = structuredClone(GRID_FIELD) as any[];
+    field[4][0][11] = [1];
+    const { fields } = parseFormHtml(wrap([field]), VALID_URL);
+    expect(fields[0]!.typeLabel).toBe('checkbox_grid');
+    expect(fields[0]!.rows).toHaveLength(2);
+  });
+
+  test('falls back to a positional row label when the tuple carries none', () => {
+    const field = structuredClone(GRID_FIELD) as any[];
+    field[4][1][3] = null;
+    const { fields } = parseFormHtml(wrap([field]), VALID_URL);
+    expect(fields[0]!.rows?.[1]).toEqual({ label: 'Row 2', entryId: 'entry.222' });
+  });
+
+  test('does not attach rows to non-grid questions', () => {
+    const { fields } = parseFormHtml(MINIMAL_HTML, VALID_URL);
+    expect(fields[0]!.rows).toBeUndefined();
+  });
+
+  test.each([
+    ['date with year and no time', [[333, null, 0, null, null, null, null, [0, 1]]], 'date'],
+    ['date with no flag array', [[333, null, 0]], 'date'],
+    ['date that includes a time', [[333, null, 0, null, null, null, null, [1, 1]]], 'date_time'],
+    ['date without a year', [[333, null, 0, null, null, null, null, [0, 0]]], 'date_without_year'],
+  ])('labels a %s', (_name, entries, expected) => {
+    const { fields } = parseFormHtml(wrap([[null, 'When?', '', 9, entries]]), VALID_URL);
+    expect(fields[0]!.typeLabel).toBe(expected);
+    expect(fields[0]!.entryId).toBe('entry.333');
+  });
+
+  test.each([
+    ['time', [[444, null, 0, null, null, null, [0]]], 'time'],
+    ['time with no flag array', [[444, null, 0]], 'time'],
+    ['duration', [[444, null, 0, null, null, null, [1]]], 'duration'],
+  ])('labels a %s', (_name, entries, expected) => {
+    const { fields } = parseFormHtml(wrap([[null, 'How long?', '', 10, entries]]), VALID_URL);
+    expect(fields[0]!.typeLabel).toBe(expected);
+  });
+
+  test('type code 6 is a title block, not a grid', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { fields } = parseFormHtml(
+      wrap([[null, 'Section', 'intro', 6, null], [null, 'Name', '', 0, [[555, null, 0]]]]),
+      VALID_URL,
+    );
+    expect(fields.map((f) => f.label)).toEqual(['Name']);
+  });
+});
