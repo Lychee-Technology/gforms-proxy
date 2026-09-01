@@ -54,6 +54,44 @@ function isCalendarDate(value: string): boolean {
   return maxDay !== undefined && day <= maxDay;
 }
 
+// The three object keywords `schema.ts` emits: at the root for every form and,
+// since #23, on a grid property. `path` names the entry — a bare key at the
+// root, `field.row` below it. Object.hasOwn on both sides, not `in`: `in`
+// walks the prototype chain, so "toString" would count as present / allowed.
+function validateObjectKeywords(
+  value: Record<string, unknown>,
+  schema: Schema,
+  errors: ValidationError[],
+  path: (key: string) => string,
+): void {
+  const required = schema['required'];
+  if (Array.isArray(required)) {
+    for (const key of required as string[]) {
+      if (!Object.hasOwn(value, key)) {
+        errors.push({ field: path(key), message: 'is required' });
+      }
+    }
+  }
+
+  const properties = schema['properties'];
+  if (!isObject(properties)) return;
+
+  if (schema['additionalProperties'] === false) {
+    for (const key of Object.keys(value)) {
+      if (!Object.hasOwn(properties, key)) {
+        errors.push({ field: path(key), message: 'additional property not allowed' });
+      }
+    }
+  }
+
+  for (const [key, propSchema] of Object.entries(properties)) {
+    if (!Object.hasOwn(value, key)) continue;
+    if (isObject(propSchema)) {
+      validateProperty(path(key), value[key], propSchema, errors);
+    }
+  }
+}
+
 // `pattern` is deliberately absent from this validator. Google Forms patterns
 // are RE2, and Google enforces them server-side: a submission that violates
 // only a regex rule comes back from `formResponse` as HTTP 400. Evaluating
@@ -163,25 +201,14 @@ function validateProperty(
     }
   }
 
-  // Grid questions are the only objects `schema.ts` emits, as
-  // `{type: 'object', additionalProperties: {type: 'string', enum: [...]}}`,
-  // so one shared schema constrains every row's answer. Recursion terminates
-  // at depth 1 because that inner schema carries no `additionalProperties` of
-  // its own: depth follows the schema, not the caller's nesting. The per-entry
-  // work is linear in the body, so it stays inside the route's 64 KB cap and
-  // needs no bound of its own. Nested `properties` and a boolean
-  // `additionalProperties` are deliberately not handled — the generator emits
-  // neither, and the coupling rule in ADR 0002 asks this validator to cover
-  // what `schema.ts` emits, not JSON Schema at large.
+  // Grid questions are the only objects `schema.ts` emits below the root:
+  // rows under `properties`, closed by `additionalProperties: false`. Depth
+  // follows the schema, not the payload — a row schema carries no object
+  // keywords, so recursion ends one level down however deeply a caller nests
+  // JSON. The per-entry work is linear in the body and stays inside the
+  // route's 64 KB cap.
   if (isObject(value)) {
-    const additionalProperties = schema['additionalProperties'];
-    if (isObject(additionalProperties)) {
-      // Object.entries, not for...in: own enumerable keys only, for the same
-      // reason `validate` reaches for Object.hasOwn.
-      for (const [key, entry] of Object.entries(value)) {
-        validateProperty(`${field}.${key}`, entry, additionalProperties, errors);
-      }
-    }
+    validateObjectKeywords(value, schema, errors, (key) => `${field}.${key}`);
   }
 
   const allOf = schema['allOf'];
@@ -233,36 +260,6 @@ export function validate(
   }
 
   const errors: ValidationError[] = [];
-  const properties = schema['properties'];
-  const required = schema['required'];
-  const additionalProperties = schema['additionalProperties'];
-
-  // Object.hasOwn, not `in`: `in` walks the prototype chain, so keys like
-  // "toString" or "constructor" would count as present / allowed.
-  if (Array.isArray(required)) {
-    for (const key of required as string[]) {
-      if (!Object.hasOwn(data, key)) {
-        errors.push({ field: key, message: 'is required' });
-      }
-    }
-  }
-
-  if (additionalProperties === false && isObject(properties)) {
-    for (const key of Object.keys(data)) {
-      if (!Object.hasOwn(properties, key)) {
-        errors.push({ field: key, message: 'additional property not allowed' });
-      }
-    }
-  }
-
-  if (isObject(properties)) {
-    for (const [key, propSchema] of Object.entries(properties)) {
-      if (!Object.hasOwn(data, key)) continue;
-      if (isObject(propSchema)) {
-        validateProperty(key, data[key], propSchema, errors);
-      }
-    }
-  }
-
+  validateObjectKeywords(data, schema, errors, (key) => key);
   return errors;
 }

@@ -527,63 +527,107 @@ describe('validate \u2014 a not-constraint carrying a pattern is skipped', () =>
   });
 });
 
-describe('validate — grid objects (schema-valued additionalProperties)', () => {
-  // The shape schema.ts emits for `grid` / `multiple_choice_grid`: an object
-  // whose every entry is one row's answer, constrained by one shared schema.
+describe('validate — grid objects (named rows, #23)', () => {
+  // The shape schema.ts emits for a grid: rows under `properties`, closed by
+  // `additionalProperties: false`, all rows required when the question is.
   const schema = {
     type: 'object',
+    additionalProperties: false,
     properties: {
       ratings: {
         type: 'object',
-        additionalProperties: { type: 'string', enum: ['Yes', 'No'] },
+        properties: {
+          speed: { type: 'string', enum: ['Yes', 'No'] },
+          price: { type: 'string', enum: ['Yes', 'No'] },
+        },
+        required: ['speed', 'price'],
+        additionalProperties: false,
       },
     },
   };
 
-  test('passes a grid whose every entry is an allowed option', () => {
-    expect(validate({ ratings: { 'Row 1': 'Yes', 'Row 2': 'No' } }, schema)).toEqual([]);
+  test('passes a grid whose every row holds an allowed column', () => {
+    expect(validate({ ratings: { speed: 'Yes', price: 'No' } }, schema)).toEqual([]);
   });
 
-  test('passes an empty grid object', () => {
-    expect(validate({ ratings: {} }, schema)).toEqual([]);
+  test('names the row when a column is not allowed', () => {
+    expect(validate({ ratings: { speed: 'Maybe', price: 'No' } }, schema)).toEqual([
+      { field: 'ratings.speed', message: 'must be one of: Yes, No' },
+    ]);
   });
 
-  test('fails an entry of the wrong type, naming the row', () => {
-    const errors = validate({ ratings: { 'Row 1': 42 } }, schema);
-    expect(errors).toEqual([{ field: 'ratings.Row 1', message: 'must be of type string' }]);
+  test('names the row when its value has the wrong type', () => {
+    expect(validate({ ratings: { speed: 1, price: 'No' } }, schema)).toEqual([
+      { field: 'ratings.speed', message: 'must be of type string' },
+    ]);
   });
 
-  test('fails an entry outside the row enum', () => {
-    const errors = validate({ ratings: { 'Row 1': 'Maybe' } }, schema);
-    expect(errors).toHaveLength(1);
-    expect(errors[0]?.field).toBe('ratings.Row 1');
-    expect(errors[0]?.message).toContain('must be one of');
+  test('reports every offending row, not just the first', () => {
+    const errors = validate({ ratings: { speed: 'Maybe', price: 42 } }, schema);
+    expect(errors.map((e) => e.field)).toEqual(['ratings.speed', 'ratings.price']);
   });
 
-  test('reports every offending entry, not just the first', () => {
-    const errors = validate({ ratings: { 'Row 1': 'Maybe', 'Row 2': 'Yes', 'Row 3': 42 } }, schema);
-    expect(errors.map((e) => e.field)).toEqual(['ratings.Row 1', 'ratings.Row 3']);
+  test('reports a missing required row', () => {
+    expect(validate({ ratings: { speed: 'Yes' } }, schema)).toEqual([
+      { field: 'ratings.price', message: 'is required' },
+    ]);
   });
 
-  // Nested `properties` and a boolean `additionalProperties` on a property
-  // schema are not implemented, because schema.ts emits neither. Entries stay
-  // unchecked there; this pins that boundary so a future generator change has
-  // to come here first (ADR 0002's coupling rule).
-  test('leaves entries unchecked when the property schema has no additionalProperties', () => {
-    const untyped = { type: 'object', properties: { ratings: { type: 'object' } } };
-    expect(validate({ ratings: { 'Row 1': 42 } }, untyped)).toEqual([]);
+  test('rejects a row the schema does not name', () => {
+    expect(validate({ ratings: { speed: 'Yes', price: 'No', extra: 'Yes' } }, schema)).toEqual([
+      { field: 'ratings.extra', message: 'additional property not allowed' },
+    ]);
   });
 
-  // `false` below the root reads as "unchecked" here, which is more permissive
-  // than JSON Schema, where it forbids every entry. Only `validate` honours
-  // `additionalProperties: false`, and only at the root. Nothing emits the
-  // nested form, so this pins the deviation rather than the semantics: whoever
-  // makes `schema.ts` emit it has to change this test, and the ADR with it.
-  test('treats a nested additionalProperties: false as unchecked, not as a rejection', () => {
-    const closed = {
-      type: 'object',
-      properties: { ratings: { type: 'object', additionalProperties: false } },
+  test('ignores inherited keys on both sides, like the root does', () => {
+    // `toString` is on Object.prototype: neither a present row nor an
+    // allowed one.
+    const inherited = {
+      ...schema,
+      properties: { ratings: { ...schema.properties.ratings, required: ['toString'] } },
     };
-    expect(validate({ ratings: { 'Row 1': 42 } }, closed)).toEqual([]);
+    expect(validate({ ratings: { speed: 'Yes', price: 'No' } }, inherited)).toEqual([
+      { field: 'ratings.toString', message: 'is required' },
+    ]);
+    expect(validate({ ratings: { speed: 'Yes', price: 'No', toString: 'Yes' } }, schema)).toEqual([
+      { field: 'ratings.toString', message: 'additional property not allowed' },
+    ]);
+  });
+
+  test('validates a checkbox-grid row as an array', () => {
+    const multi = {
+      type: 'object',
+      properties: {
+        ratings: {
+          type: 'object',
+          properties: {
+            speed: {
+              type: 'array',
+              items: { type: 'string', enum: ['A', 'B'] },
+              uniqueItems: true,
+              maxItems: 2,
+            },
+          },
+          additionalProperties: false,
+        },
+      },
+    };
+    expect(validate({ ratings: { speed: ['A', 'B'] } }, multi)).toEqual([]);
+    expect(validate({ ratings: { speed: ['A', 'C'] } }, multi)).toEqual([
+      { field: 'ratings.speed[1]', message: 'must be one of: A, B' },
+    ]);
+  });
+
+  test('a schema without object keywords leaves entries unchecked', () => {
+    const loose = { type: 'object', properties: { ratings: { type: 'object' } } };
+    expect(validate({ ratings: { anything: 1 } }, loose)).toEqual([]);
+  });
+
+  test('depth follows the schema, not the payload', () => {
+    // A row schema carries no object keywords, so a nested object inside a
+    // row fails the type check and recursion stops there.
+    expect(validate({ ratings: { speed: { deep: { deeper: 1 } }, price: 'No' } }, schema)).toEqual([
+      { field: 'ratings.speed', message: 'must be of type string' },
+    ]);
   });
 });
