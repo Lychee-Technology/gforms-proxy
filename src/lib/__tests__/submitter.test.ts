@@ -64,46 +64,108 @@ describe('submitToGoogleForms — URL encoding', () => {
   });
 });
 
-describe('submitToGoogleForms — object value guard', () => {
-  test('throws SubmissionError on object-typed value without calling fetch', async () => {
+const COMPOUND_MAP = {
+  when: { kind: 'date' as const, entryId: 'entry.500' },
+  at: { kind: 'time' as const, entryId: 'entry.600' },
+  ratings: { kind: 'grid' as const, rows: { speed: 'entry.701', price: 'entry.702' } },
+};
+
+const captureBody = () => {
+  let body: string | null = null;
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
+    body = (init?.body as string) ?? null;
+    return new Response('', { status: 200 });
+  });
+  return () => body;
+};
+
+describe('submitToGoogleForms — compound encodings (#23)', () => {
+  test('splits a date into year, month and day parameters without leading zeros', async () => {
+    const body = captureBody();
+    await submitToGoogleForms(SUBMISSION_URL, COMPOUND_MAP, { when: '2026-01-05' });
+    expect(body()).toBe('entry.500_year=2026&entry.500_month=1&entry.500_day=5');
+  });
+
+  test('splits a time into hour and minute parameters', async () => {
+    const body = captureBody();
+    await submitToGoogleForms(SUBMISSION_URL, COMPOUND_MAP, { at: '09:07' });
+    expect(body()).toBe('entry.600_hour=9&entry.600_minute=7');
+  });
+
+  test('sends one parameter per grid row using that row entry ID', async () => {
+    const body = captureBody();
+    await submitToGoogleForms(SUBMISSION_URL, COMPOUND_MAP, {
+      ratings: { speed: 'Good', price: 'Bad' },
+    });
+    expect(body()).toBe('entry.701=Good&entry.702=Bad');
+  });
+
+  test('repeats a row entry ID for each column of a checkbox-grid row', async () => {
+    const body = captureBody();
+    await submitToGoogleForms(SUBMISSION_URL, COMPOUND_MAP, {
+      ratings: { speed: ['Good', 'Fast'] },
+    });
+    expect(body()).toBe('entry.701=Good&entry.701=Fast');
+  });
+
+  test('omits rows the caller left out and ignores rows the map does not know', async () => {
+    const body = captureBody();
+    await submitToGoogleForms(SUBMISSION_URL, COMPOUND_MAP, {
+      ratings: { price: 'Bad', unknown: 'x' },
+    });
+    expect(body()).toBe('entry.702=Bad');
+  });
+
+  test('still encodes plain string mappings alongside compound ones', async () => {
+    const body = captureBody();
+    await submitToGoogleForms(
+      SUBMISSION_URL,
+      { ...FIELD_MAP, ...COMPOUND_MAP },
+      { full_name: 'Alice', when: '2026-12-31' },
+    );
+    expect(body()).toBe('entry.111=Alice&entry.500_year=2026&entry.500_month=12&entry.500_day=31');
+  });
+});
+
+describe('submitToGoogleForms — value shape guard', () => {
+  const rejects = async (
+    fieldMap: Record<string, any>,
+    data: Record<string, unknown>,
+    re: RegExp,
+  ) => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('', { status: 200 }));
-
-    await expect(
-      submitToGoogleForms(SUBMISSION_URL, FIELD_MAP, {
-        full_name: { 'Row 1': 'Option A' },
-      }),
-    ).rejects.toThrow(SubmissionError);
-    expect(fetchSpy).not.toHaveBeenCalled();
-  });
-
-  test('throws SubmissionError when an array value contains an object item', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('', { status: 200 }));
-
-    await expect(
-      submitToGoogleForms(SUBMISSION_URL, FIELD_MAP, {
-        tags: ['ok', { nested: true }],
-      }),
-    ).rejects.toThrow(SubmissionError);
-    expect(fetchSpy).not.toHaveBeenCalled();
-  });
-
-  test('error message names the offending field key', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('', { status: 200 }));
-
-    await expect(
-      submitToGoogleForms(SUBMISSION_URL, FIELD_MAP, { email: { a: 1 } }),
-    ).rejects.toThrow(/email/);
-  });
-
-  test("marks the error 'invalid-value' with no status, so the route answers 400", async () => {
+    const err = await submitToGoogleForms(SUBMISSION_URL, fieldMap, data).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(SubmissionError);
+    expect((err as SubmissionError).message).toMatch(re);
     // Nothing was sent upstream, so there is no status to carry; the kind is
     // what tells the route this is the client's value, not Google's answer.
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('', { status: 200 }));
+    expect(err).toMatchObject({ kind: 'invalid-value', statusCode: undefined });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  };
 
-    await expect(
-      submitToGoogleForms(SUBMISSION_URL, FIELD_MAP, { email: { a: 1 } }),
-    ).rejects.toMatchObject({ kind: 'invalid-value', statusCode: undefined });
-  });
+  test('rejects an object where a plain mapping expects a scalar', () =>
+    rejects(FIELD_MAP, { full_name: { 'Row 1': 'Option A' } }, /full_name/));
+
+  test('rejects an object item inside an array value', () =>
+    rejects(FIELD_MAP, { tags: ['ok', { nested: true }] }, /tags/));
+
+  test('rejects a date value that is not YYYY-MM-DD', () =>
+    rejects(COMPOUND_MAP, { when: '05/01/2026' }, /when.*YYYY-MM-DD/));
+
+  test('rejects a non-string date value', () =>
+    rejects(COMPOUND_MAP, { when: 20260105 }, /when/));
+
+  test('rejects a time value that is not HH:MM', () =>
+    rejects(COMPOUND_MAP, { at: '9:07' }, /at.*HH:MM/));
+
+  test('rejects a non-object grid value', () =>
+    rejects(COMPOUND_MAP, { ratings: 'Good' }, /ratings/));
+
+  test('rejects an array as a grid value', () =>
+    rejects(COMPOUND_MAP, { ratings: ['Good'] }, /ratings/));
+
+  test('rejects an object inside a grid row and names the row', () =>
+    rejects(COMPOUND_MAP, { ratings: { speed: { deep: 1 } } }, /ratings\.speed/));
 });
 
 describe('submitToGoogleForms — HTTP behavior', () => {
