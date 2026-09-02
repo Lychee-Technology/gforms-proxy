@@ -34,7 +34,9 @@ a form's protection is visible in the same file as its schema.
 splices a required string property `turnstile_token` into the generated
 schema. `GET /api/v1/forms/:formId/schema` therefore describes the body the
 proxy accepts, which for a protected form is one property wider than the
-Google form itself. The key is reserved: `schema.ts` seeds its key
+Google form itself. The token stops at the proxy: the submitter walks the
+`fieldMap`, which has no entry for `turnstile_token`, so the value is never
+forwarded to Google. The key is reserved: `schema.ts` seeds its key
 deduplication with `turnstile_token`, so a form question whose generated key
 would collide is renamed (`turnstile_token_2`) and can never shadow the
 token.
@@ -59,7 +61,9 @@ Failures are split by who is at fault:
 
 Verification runs after schema validation so a malformed body never costs a
 siteverify round trip, and before submission so a rejected token never
-reaches Google.
+reaches Google. It also runs only for registered forms: an unknown form ID is
+a 404 before the body is read (ADR 0007), so no request can spend a siteverify
+call on a form that does not exist.
 
 **Regeneration cannot strip protection silently.** Because the generator
 overwrites `src/forms/<formId>.json` in place (ADR 0004), a routine re-run
