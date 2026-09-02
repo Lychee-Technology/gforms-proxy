@@ -117,6 +117,23 @@ describe('parseFormHtml', () => {
     const html = `<html><script>var FB_PUBLIC_LOAD_DATA_ = ${emptyPayload};\n</script></html>`;
     expect(() => parseFormHtml(html, VALID_URL)).toThrow(FormParseError);
   });
+
+  // Google's codes, per python-gforms and the live payload of the registered
+  // AI Readiness form: 3 is a single-select dropdown, 4 is multi-select
+  // checkboxes. The map once had them the other way round (#39).
+  test.each([
+    [3, 'dropdown'],
+    [4, 'checkboxes'],
+  ])('labels type code %i as %s', (code, expected) => {
+    const payload = JSON.stringify([
+      null,
+      [null, [[null, 'Pick', '', code, [[555, [['A'], ['B']], 0]]]]],
+    ]);
+    const html = `<html><script>var FB_PUBLIC_LOAD_DATA_ = ${payload};\n</script></html>`;
+    const { fields } = parseFormHtml(html, VALID_URL);
+    expect(fields[0]?.typeLabel).toBe(expected);
+    expect(fields[0]?.options).toEqual(['A', 'B']);
+  });
 });
 
 // fetchFormHtml runs in the CLI generator, not the Worker (ADR 0007), so the

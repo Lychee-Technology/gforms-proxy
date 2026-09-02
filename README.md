@@ -27,13 +27,13 @@ From that it generates a JSON Schema: types and constraints per field, validatio
 | 0 | short_answer | string |
 | 1 | paragraph | string |
 | 2 | multiple_choice | string (enum) |
-| 3 | checkboxes | array of strings (enum) |
-| 4 | dropdown | string (enum) |
+| 3 | dropdown | string (enum) |
+| 4 | checkboxes | array of strings (enum) |
 | 5 | linear_scale | integer (range) |
-| 6 | grid | object |
-| 7 | multiple_choice_grid | object |
-| 8 | date | string (date format) |
-| 9 | time | string (time format) |
+| 7 | multiple_choice_grid | object, one string (enum) property per row |
+| 7 | checkbox_grid (per-entry flag) | object, one array of strings (enum) property per row |
+| 9 | date | string (date format) |
+| 10 | time | string (time format) |
 | 18 | rating | integer |
 
 ## Validation rules supported

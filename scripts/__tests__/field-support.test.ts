@@ -18,7 +18,8 @@ describe('assertSupportedFieldTypes', () => {
       assertSupportedFieldTypes('form123', [
         field('Name', 0, 'short_answer'),
         field('Choice', 2, 'multiple_choice'),
-        field('Tags', 3, 'checkboxes'),
+        field('Industry', 3, 'dropdown'),
+        field('Tags', 4, 'checkboxes'),
         field('Rate', 7, 'multiple_choice_grid'),
         field('Pick', 7, 'checkbox_grid'),
         field('When', 9, 'date'),

@@ -75,13 +75,13 @@ export interface FormDefinition {
 
 // Google's type codes as observed in FB_PUBLIC_LOAD_DATA_ (see
 // google-forms-internals.md). 6 is a title/description block with no entry,
-// so it is deliberately absent. 3 and 4 are known to be swapped (#39).
+// so it is deliberately absent.
 export const QUESTION_TYPE_MAP: Record<number, string> = {
   0: 'short_answer',
   1: 'paragraph',
   2: 'multiple_choice',
-  3: 'checkboxes',
-  4: 'dropdown',
+  3: 'dropdown',
+  4: 'checkboxes',
   5: 'linear_scale',
   7: 'multiple_choice_grid',
   9: 'date',
