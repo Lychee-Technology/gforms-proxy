@@ -12,6 +12,7 @@ These ADRs record the decisions made in the project's design specs, whose workin
 | [0006](0006-google-enforces-patterns-not-us.md) | Google enforces `pattern`, not us |
 | [0007](0007-no-live-schema-extraction-at-runtime.md) | Worker serves registered forms only; no live schema extraction |
 | [0008](0008-compound-questions-through-structured-fieldmap.md) | Grid, date and time questions map through structured `fieldMap` entries |
+| [0009](0009-turnstile-per-form-opt-in.md) | Turnstile is a per-form opt-in, verified by the Worker and guarded on regeneration |
 
 To add an ADR: copy the format (Status / Date / Source, then Context / Decision / Consequences), take the next number, and add a row here.
 
