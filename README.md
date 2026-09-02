@@ -27,14 +27,16 @@ From that it generates a JSON Schema: types and constraints per field, validatio
 | 0 | short_answer | string |
 | 1 | paragraph | string |
 | 2 | multiple_choice | string (enum) |
-| 3 | checkboxes | array of strings (enum) |
-| 4 | dropdown | string (enum) |
+| 3 | dropdown | string (enum) |
+| 4 | checkboxes | array of strings (enum) |
 | 5 | linear_scale | integer (range) |
-| 6 | grid | object |
-| 7 | multiple_choice_grid | object |
-| 8 | date | string (date format) |
-| 9 | time | string (time format) |
-| 18 | rating | integer |
+| 7 | multiple_choice_grid | object, one string (enum) property per row |
+| 7 | checkbox_grid | object, one array of strings (enum) property per row |
+| 9 | date | string (date format) |
+| 10 | time | string (time format) |
+| 18 | rating | string (not yet mapped to integer, see #43) |
+
+Both grid variants share code 7; a per-row flag in the entry tuple tells them apart (see `google-forms-internals.md`). Code 6 is a title/description block with no entry and is skipped.
 
 ## Validation rules supported
 

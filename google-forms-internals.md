@@ -29,8 +29,8 @@ Mapped in `QUESTION_TYPE_MAP`:
 - `0` short_answer
 - `1` paragraph
 - `2` multiple_choice
-- `3` checkboxes (Google's code 3 is actually dropdown; the map has 3 and 4 swapped, see #39)
-- `4` dropdown (actually checkboxes, see #39)
+- `3` dropdown (single select; the map once had 3 and 4 swapped, fixed in #39)
+- `4` checkboxes (multi select)
 - `5` linear_scale
 - `6` title/description block — carries no entry, so the parser skips it; not in the map
 - `7` multiple_choice_grid, refined to `checkbox_grid` by a per-entry flag (see below)

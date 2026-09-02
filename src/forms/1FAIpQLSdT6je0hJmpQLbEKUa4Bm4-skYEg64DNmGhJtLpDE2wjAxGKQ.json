@@ -11,25 +11,20 @@
       "field_1": {
         "title": "Industry or line of business",
         "description": "Industry or line of business",
-        "type": "array",
-        "items": {
-          "type": "string",
-          "enum": [
-            "Education & training",
-            "Real estate / mortgage & lending",
-            "Insurance & financial services",
-            "Accounting & tax",
-            "Immigration / legal services",
-            "Beauty, wellness & local services",
-            "Renovation, repair & home services",
-            "E-commerce & retail",
-            "Consulting & professional services",
-            "Other"
-          ]
-        },
-        "uniqueItems": true,
-        "minItems": 1,
-        "maxItems": 10
+        "type": "string",
+        "minLength": 1,
+        "enum": [
+          "Education & training",
+          "Real estate / mortgage & lending",
+          "Insurance & financial services",
+          "Accounting & tax",
+          "Immigration / legal services",
+          "Beauty, wellness & local services",
+          "Renovation, repair & home services",
+          "E-commerce & retail",
+          "Consulting & professional services",
+          "Other"
+        ]
       },
       "field_2": {
         "title": "Do you find yourself answering the same kinds of customer questions over and over, daily or weekly?",
@@ -84,12 +79,17 @@
       "field_7": {
         "title": "Which kinds of replies could AI draft first, for you to review?",
         "description": "Which kinds of replies could AI draft first, for you to review?",
-        "type": "string",
-        "enum": [
-          "Can't think of any right now",
-          "A few — basic inquiries, document lists, reminders",
-          "Many — replies, summaries, first-draft quotes, follow-ups"
-        ]
+        "type": "array",
+        "items": {
+          "type": "string",
+          "enum": [
+            "Can't think of any right now",
+            "A few — basic inquiries, document lists, reminders",
+            "Many — replies, summaries, first-draft quotes, follow-ups"
+          ]
+        },
+        "uniqueItems": true,
+        "maxItems": 3
       },
       "field_8": {
         "title": "Which actions absolutely require a human to confirm?",
