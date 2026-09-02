@@ -103,15 +103,23 @@ function getQuestionTypeLabel(code?: number): string {
 }
 
 // Reads flag `flagIndex` of the flag array at `tupleIndex` of the first
-// entry tuple. Google emits the flags as the numbers 0 and 1; anything else
-// (absent array, absent flag, a string or object) is undefined, so callers
-// fall back to Google's default for that question rather than reading a
-// malformed value as "on".
+// entry tuple. Google emits the flags as exactly the numbers 0 and 1;
+// anything else (absent array, absent flag, another number, a string or
+// object) is undefined, so callers fall back to Google's default for that
+// question rather than reading a malformed value as "on" or "off".
 function readFlag(entryData: unknown, tupleIndex: number, flagIndex: number): boolean | undefined {
   const flags = (entryData as any)?.[0]?.[tupleIndex];
   if (!Array.isArray(flags)) return undefined;
   const value = flags[flagIndex];
-  return typeof value === 'number' ? value !== 0 : undefined;
+  if (value === 1) return true;
+  if (value === 0) return false;
+  return undefined;
+}
+
+// An entry ID is usable when it can become a distinct `entry.<id>` parameter:
+// a finite number (what Google emits) or a non-empty string.
+function isEntryId(id: unknown): id is number | string {
+  return (typeof id === 'number' && Number.isFinite(id)) || (typeof id === 'string' && id !== '');
 }
 
 // Grid, date and time questions carry variants that the type code alone does
@@ -140,9 +148,7 @@ function extractGridRows(label: string, entryData: unknown): GridRow[] {
   if (!Array.isArray(entryData)) return [];
   return entryData.map((tuple: unknown, idx: number): GridRow => {
     const id = (tuple as any)?.[0];
-    const validId =
-      (typeof id === 'number' && Number.isFinite(id)) || (typeof id === 'string' && id !== '');
-    if (!validId) {
+    if (!isEntryId(id)) {
       throw new FormParseError(
         `Grid question "${label}" row ${idx + 1} has no entry ID (unexpected form structure)`,
       );
@@ -274,6 +280,15 @@ export function parseFormHtml(html: string, url: string): RawFormData {
     const entryIdValue = (entryData as any)?.[0]?.[0];
 
     if (label && entryIdValue !== undefined) {
+      // An entry tuple that exists but carries no usable ID is a malformed
+      // question, not an entry-less block (those have no tuple at all and are
+      // skipped below). Publishing it would map the field to `entry.null` or
+      // similar, a parameter Google does not have, so fail the run instead.
+      if (!isEntryId(entryIdValue)) {
+        throw new FormParseError(
+          `Question "${label}" has no usable entry ID (unexpected form structure)`,
+        );
+      }
       fields.push({
         label,
         entryId: `entry.${String(entryIdValue)}`,

@@ -272,6 +272,39 @@ describe('parseFormHtml — grid, date and time (#23)', () => {
     expect(fields[0]!.typeLabel).toBe(expected);
   });
 
+  // Google emits flags as exactly 0 or 1; any other number is malformed and
+  // must not switch a variant on (or off).
+  test.each([
+    ['a grid flag of 2', 7, [[111, [['Good']], 0, ['Speed'], null, null, null, null, null, null, null, [2]]], 'multiple_choice_grid'],
+    ['a date time flag of -1', 9, [[333, null, 0, null, null, null, null, [-1, 1]]], 'date'],
+    ['a date year flag of 2', 9, [[333, null, 0, null, null, null, null, [0, 2]]], 'date'],
+    ['a duration flag of 2', 10, [[444, null, 0, null, null, null, [2]]], 'time'],
+  ])('falls back to the default variant for %s', (_name, code, entries, expected) => {
+    const { fields } = parseFormHtml(wrap([[null, 'Q', '', code, entries]]), VALID_URL);
+    expect(fields[0]!.typeLabel).toBe(expected);
+  });
+
+  // An entry tuple that is present but carries no usable ID is a malformed
+  // question, not an entry-less block: publishing it would map the field to a
+  // parameter Google does not have.
+  test.each([
+    ['a date with a null entry ID', 9, [[null, null, 0, null, null, null, null, [0, 1]]]],
+    ['a time with an object entry ID', 10, [[{ id: 444 }, null, 0]]],
+    ['a short answer with an empty-string entry ID', 0, [['', null, 0]]],
+  ])('rejects %s instead of publishing it', (_name, code, entries) => {
+    expect(() => parseFormHtml(wrap([[null, 'When?', '', code, entries]]), VALID_URL)).toThrow(
+      FormParseError,
+    );
+    expect(() => parseFormHtml(wrap([[null, 'When?', '', code, entries]]), VALID_URL)).toThrow(
+      /When\?.*entry ID/,
+    );
+  });
+
+  test('accepts a string entry ID', () => {
+    const { fields } = parseFormHtml(wrap([[null, 'Q', '', 0, [['123', null, 0]]]]), VALID_URL);
+    expect(fields[0]!.entryId).toBe('entry.123');
+  });
+
   test('type code 6 is a title block, not a grid', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const { fields } = parseFormHtml(

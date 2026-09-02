@@ -15,7 +15,7 @@ For each item in `data[1][1]`:
 
 ### `entryData` layout
 `entryData[0]` is the main tuple:
-- `[0]`: entry ID number (combined as `entry.<id>` in output).
+- `[0]`: entry ID number (combined as `entry.<id>` in output). The parser accepts a finite number or a non-empty string here and in grid row tuples; a tuple with any other value fails generation, while an element with no `field[4]` at all (title/description block) is skipped.
 - `[1]`: options array (varies by type). Each option can be:
   - a plain string,
   - an array where the first element is the option string,
