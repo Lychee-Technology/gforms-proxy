@@ -32,6 +32,22 @@ const DATE_PAYLOAD = JSON.stringify([
 const DATE_HTML = `<html><head><title>Date Form - Google Forms</title></head>
 <body><script>var FB_PUBLIC_LOAD_DATA_ = ${DATE_PAYLOAD};\n</script></body></html>`;
 
+// Same form, but the date question has "include time" switched on
+// (entry[7] = [includesTime, includesYear]).
+const DATE_TIME_PAYLOAD = JSON.stringify([
+  null,
+  [
+    null,
+    [
+      [null, 'What is your name?', '', 0, [[123456, null, 1]]],
+      [null, 'Pick a moment', '', 9, [[654321, null, 1, null, null, null, null, [1, 1]]]],
+    ],
+  ],
+]);
+
+const DATE_TIME_HTML = `<html><head><title>Date Time Form - Google Forms</title></head>
+<body><script>var FB_PUBLIC_LOAD_DATA_ = ${DATE_TIME_PAYLOAD};\n</script></body></html>`;
+
 let workDir: string;
 let originalCwd: string;
 
@@ -126,14 +142,25 @@ describe('main() acceptance paths', () => {
   });
 });
 
-describe('main() unsupported field types', () => {
-  test('refuses to generate a definition for a form with a date question', async () => {
+describe('main() grid, date and time support (#23)', () => {
+  test('generates a definition for a form with a date question', async () => {
     const formId = 'dateForm123';
     vi.stubGlobal('fetch', vi.fn(async () => new Response(DATE_HTML)));
 
+    await main(['node', 'gen-field-mapping.ts', '--url', `https://docs.google.com/forms/d/e/${formId}/viewform`]);
+
+    const definition = readDefinition(formId);
+    expect(definition.schema.properties.field_2).toMatchObject({ type: 'string', format: 'date' });
+    expect(definition.fieldMap.field_2).toEqual({ kind: 'date', entryId: 'entry.654321' });
+  });
+
+  test('still refuses a date question that includes a time', async () => {
+    const formId = 'dateTimeForm123';
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(DATE_TIME_HTML)));
+
     await expect(
       main(['node', 'gen-field-mapping.ts', '--url', `https://docs.google.com/forms/d/e/${formId}/viewform`]),
-    ).rejects.toThrow(/Pick a date/);
+    ).rejects.toThrow(/Pick a moment.*date_time/);
 
     expect(existsSync(definitionPath(formId))).toBe(false);
   });

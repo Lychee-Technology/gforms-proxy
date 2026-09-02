@@ -15,7 +15,7 @@ For each item in `data[1][1]`:
 
 ### `entryData` layout
 `entryData[0]` is the main tuple:
-- `[0]`: entry ID number (combined as `entry.<id>` in output).
+- `[0]`: entry ID number (combined as `entry.<id>` in output). The parser accepts a finite number or a non-empty string here and in grid row tuples; a tuple with any other value fails generation, while an element with no `field[4]` at all (title/description block) is skipped.
 - `[1]`: options array (varies by type). Each option can be:
   - a plain string,
   - an array where the first element is the option string,
@@ -29,14 +29,33 @@ Mapped in `QUESTION_TYPE_MAP`:
 - `0` short_answer
 - `1` paragraph
 - `2` multiple_choice
-- `3` checkboxes
-- `4` dropdown
+- `3` checkboxes (Google's code 3 is actually dropdown; the map has 3 and 4 swapped, see #39)
+- `4` dropdown (actually checkboxes, see #39)
 - `5` linear_scale
-- `6` grid
-- `7` multiple_choice_grid
-- `8` date
-- `9` time
+- `6` title/description block — carries no entry, so the parser skips it; not in the map
+- `7` multiple_choice_grid, refined to `checkbox_grid` by a per-entry flag (see below)
+- `9` date, refined to `date_time` / `date_without_year` by per-entry flags
+- `10` time, refined to `duration` by a per-entry flag
+- `18` rating
 - unknown/default: `unknown`
+
+Source for the codes and flag positions: `python-gforms` (`gforms/elements_base.py`), cross-checked against the live payloads of the registered forms.
+
+## Grid, date and time entries
+
+A grid question (type code `7`) has one tuple per row in `field[4]`:
+
+    [rowEntryId, columns, required, [rowLabel], null, null, null, null, null, null, null, [multichoice]]
+
+- `[0]`: that row's entry ID — each row is submitted as its own `entry.<rowEntryId>` parameter.
+- `[1]`: the columns, in the usual options layout (same for every row).
+- `[2]`: required flag (same for every row).
+- `[3][0]`: the row label.
+- `[11][0]`: `1` for a checkbox grid (several columns per row, entry ID repeated per column), `0` for a multiple-choice grid.
+
+A date question (code `9`) has `entryData[0][7] = [includesTime, includesYear]`. It is submitted as `entry.X_year`, `entry.X_month`, `entry.X_day` (plus `_hour` / `_minute` when it includes a time). The proxy supports only year-and-no-time dates; the other variants are refused by `scripts/field-support.ts` as `date_time` / `date_without_year` (ADR 0008).
+
+A time question (code `10`) has `entryData[0][6] = [isDuration]`. It is submitted as `entry.X_hour`, `entry.X_minute` (plus `_second` for a duration). Durations are refused as `duration`.
 
 ## Validation payload format
 `extractValidation` expects `entryData[0][3]` (fallback `[4]`) to be an array whose first item is `data`, also an array. Structure:

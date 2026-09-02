@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { buildJsonSchema, buildFieldMap } from '../schema.js';
+import { buildJsonSchema, buildFieldMap, buildFieldsMeta, resolveRowKeys } from '../schema.js';
 import { validate } from '../validator.js';
 import type { RawFormData, FieldDetail, FieldMeta } from '../types.js';
 
@@ -374,5 +374,105 @@ describe('text contains validation', () => {
     // would reject every submission to this form.
     expect(validate({ field_1: 'prefix a.b suffix' }, schema)).toEqual([]);
     expect(validate({ field_1: 'prefix acb suffix' }, schema)).toEqual([]);
+  });
+});
+
+const gridField = (overrides: Partial<FieldDetail> = {}): FieldDetail => ({
+  label: 'Rate each item',
+  typeCode: 7,
+  typeLabel: 'multiple_choice_grid',
+  options: ['Good', 'Bad'],
+  required: true,
+  entryId: 'entry.111',
+  rows: [
+    { label: 'Speed', entryId: 'entry.111' },
+    { label: 'Price', entryId: 'entry.222' },
+  ],
+  ...overrides,
+});
+
+const rawWith = (...fields: FieldDetail[]): RawFormData => ({
+  formTitle: 'T',
+  formId: 'f',
+  fields,
+});
+
+describe('grid, date and time schemas (#23)', () => {
+  test('a multiple-choice grid names its rows and closes the object', () => {
+    const schema = buildJsonSchema(rawWith(gridField())) as any;
+    expect(schema.properties.field_1).toEqual({
+      title: 'Rate each item',
+      description: 'Rate each item',
+      type: 'object',
+      properties: {
+        speed: { title: 'Speed', type: 'string', enum: ['Good', 'Bad'] },
+        price: { title: 'Price', type: 'string', enum: ['Good', 'Bad'] },
+      },
+      required: ['speed', 'price'],
+      additionalProperties: false,
+    });
+    expect(schema.required).toEqual(['field_1']);
+  });
+
+  test('an optional grid has no required rows', () => {
+    const schema = buildJsonSchema(rawWith(gridField({ required: false }))) as any;
+    expect(schema.properties.field_1.required).toBeUndefined();
+    expect(schema.required).toBeUndefined();
+  });
+
+  test('a checkbox grid gives every row the checkboxes shape', () => {
+    const schema = buildJsonSchema(rawWith(gridField({ typeLabel: 'checkbox_grid' }))) as any;
+    expect(schema.properties.field_1.properties.speed).toEqual({
+      title: 'Speed',
+      type: 'array',
+      items: { type: 'string', enum: ['Good', 'Bad'] },
+      uniqueItems: true,
+      minItems: 1,
+      maxItems: 2,
+    });
+  });
+
+  test('row keys dedupe within a grid and fall back positionally', () => {
+    expect(
+      resolveRowKeys([
+        { label: 'Speed', entryId: 'entry.1' },
+        { label: 'speed!', entryId: 'entry.2' },
+        { label: '速度', entryId: 'entry.3' },
+      ]),
+    ).toEqual(['speed', 'speed_2', 'row_3']);
+  });
+
+  test('fieldMap carries a grid mapping whose row keys match the schema', () => {
+    const raw = rawWith(gridField());
+    const schema = buildJsonSchema(raw) as any;
+    const fieldMap = buildFieldMap(raw.fields, buildFieldsMeta(['Rate each item']));
+    expect(fieldMap.field_1).toEqual({
+      kind: 'grid',
+      rows: { speed: 'entry.111', price: 'entry.222' },
+    });
+    expect(Object.keys((fieldMap.field_1 as any).rows)).toEqual(
+      Object.keys(schema.properties.field_1.properties),
+    );
+  });
+
+  test('fieldMap carries date and time mappings and plain strings otherwise', () => {
+    const fields: FieldDetail[] = [
+      { label: 'When', typeCode: 9, typeLabel: 'date', options: [], required: false, entryId: 'entry.1' },
+      { label: 'At', typeCode: 10, typeLabel: 'time', options: [], required: false, entryId: 'entry.2' },
+      { label: 'Name', typeCode: 0, typeLabel: 'short_answer', options: [], required: false, entryId: 'entry.3' },
+    ];
+    expect(buildFieldMap(fields, buildFieldsMeta(['When', 'At', 'Name']))).toEqual({
+      field_1: { kind: 'date', entryId: 'entry.1' },
+      field_2: { kind: 'time', entryId: 'entry.2' },
+      field_3: 'entry.3',
+    });
+  });
+
+  test('the grid schema validates a well-formed answer and rejects an unknown row', () => {
+    const schema = buildJsonSchema(rawWith(gridField()));
+    expect(validate({ field_1: { speed: 'Good', price: 'Bad' } }, schema)).toEqual([]);
+    expect(validate({ field_1: { speed: 'Good', price: 'Bad', extra: 'Good' } }, schema)).toEqual([
+      { field: 'field_1.extra', message: 'additional property not allowed' },
+    ]);
   });
 });

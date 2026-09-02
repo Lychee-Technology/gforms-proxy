@@ -1,23 +1,21 @@
 import type { FieldDetail } from '../src/lib/types.js';
 
 /**
- * Question types the pipeline cannot submit correctly yet: the submitter
- * would serialize a grid object as "[object Object]"; a date answer needs
- * entry.X_year / entry.X_month / entry.X_day and a time answer needs
- * entry.X_hour / entry.X_minute, and the submitter sends neither set.
- * Refuse to generate a definition containing them instead of corrupting
- * data (#6).
- * The validator itself now checks grid entries (#18) and the date and time
- * formats (#17); submission is what still blocks all four (#23).
+ * Question variants the schema vocabulary cannot express (ADR 0008): a date
+ * that includes a time (`format: date` has no time component), a date without
+ * a year (`YYYY-MM-DD` has nowhere to omit it), and a duration (`format: time`
+ * is `HH:MM`, ADR 0002). Refuse to generate a definition containing them
+ * rather than publish a schema whose values the submitter would truncate.
  *
- * Keep in sync with QUESTION_TYPE_MAP codes 6, 7, 9, 10 (src/lib/types.ts);
- * a test asserts every label here exists in that map.
+ * Grid, date and time questions themselves are supported end-to-end (#23).
+ *
+ * Keep in sync with FLAG_DERIVED_TYPE_LABELS (src/lib/types.ts); a test
+ * asserts every label here is one the parser emits.
  */
 export const UNSUPPORTED_TYPE_LABELS: ReadonlySet<string> = new Set([
-  'grid',
-  'multiple_choice_grid',
-  'date',
-  'time',
+  'date_time',
+  'date_without_year',
+  'duration',
 ]);
 
 export function assertSupportedFieldTypes(formId: string, fields: FieldDetail[]): void {
@@ -28,8 +26,9 @@ export function assertSupportedFieldTypes(formId: string, fields: FieldDetail[])
     .map((f) => `- "${f.label}" (${f.typeLabel})`)
     .join('\n');
   throw new Error(
-    `Form ${formId} contains question types that are not supported yet:\n${details}\n` +
-      'Grid, date, and time questions cannot be submitted correctly; ' +
-      'remove them from the form or wait for support (issue #23).',
+    `Form ${formId} contains question variants that are not supported yet:\n${details}\n` +
+      'A date that includes a time, a date without a year, and a duration have no ' +
+      'JSON Schema format in this proxy (ADR 0008). Turn the option off in Google Forms ' +
+      'or wait for support.',
   );
 }

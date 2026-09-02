@@ -57,11 +57,11 @@ const DRIFTED_TURNSTILE_DEFINITION: FormDefinition = {
   turnstileEnabled: true,
 };
 
-// ADVERSARIAL FIXTURE — a mapped field with no declared type, so the validator
-// lets an object value through to the submitter. scripts/field-support.ts
-// rejects the field types that produce object values before a real definition
-// is ever written, so this drift is the only way to exercise the submitter's
-// own object-value guard through the route. Never copy this shape.
+// ADVERSARIAL FIXTURE — a plain string mapping whose property declares no
+// type, so the validator lets an object value through to the submitter. The
+// generator always declares a type, and an object only belongs under a grid
+// mapping (#23), so this drift is the only way to exercise the submitter's
+// own scalar guard through the route. Never copy this shape.
 const UNTYPED_FIELD_DEFINITION: FormDefinition = {
   formId: 'untypedFieldForm',
   submissionUrl: 'https://docs.google.com/forms/d/e/untypedFieldForm/formResponse',
@@ -77,12 +77,44 @@ const UNTYPED_FIELD_DEFINITION: FormDefinition = {
   fieldMap: { grid_answer: 'entry.333' },
 };
 
+// What the generator emits for a form with one grid, one date and one time
+// question: named rows, structured fieldMap entries (#23).
+const COMPOUND_DEFINITION: FormDefinition = {
+  formId: 'compoundForm',
+  submissionUrl: 'https://docs.google.com/forms/d/e/compoundForm/formResponse',
+  schema: {
+    $schema: 'https://json-schema.org/draft/2020-12/schema',
+    type: 'object',
+    additionalProperties: false,
+    required: ['ratings'],
+    properties: {
+      ratings: {
+        type: 'object',
+        properties: {
+          speed: { type: 'string', enum: ['Good', 'Bad'] },
+          price: { type: 'string', enum: ['Good', 'Bad'] },
+        },
+        required: ['speed', 'price'],
+        additionalProperties: false,
+      },
+      when: { type: 'string', format: 'date' },
+      at: { type: 'string', format: 'time' },
+    },
+  },
+  fieldMap: {
+    ratings: { kind: 'grid', rows: { speed: 'entry.701', price: 'entry.702' } },
+    when: { kind: 'date', entryId: 'entry.500' },
+    at: { kind: 'time', entryId: 'entry.600' },
+  },
+};
+
 vi.mock('../../forms/registry.js', () => ({
   default: new Map([
     ['testForm123', MOCK_DEFINITION],
     ['turnstileForm', MOCK_TURNSTILE_DEFINITION],
     ['driftedTurnstileForm', DRIFTED_TURNSTILE_DEFINITION],
     ['untypedFieldForm', UNTYPED_FIELD_DEFINITION],
+    ['compoundForm', COMPOUND_DEFINITION],
   ]),
 }));
 
@@ -621,5 +653,51 @@ describe('request body size limit on the submission endpoint (#29)', () => {
   test('the schema route is unaffected', async () => {
     const res = await app.request('/api/v1/forms/testForm123/schema');
     expect(res.status).toBe(200);
+  });
+});
+
+describe('POST /api/v1/forms/:formId/responses — grid, date and time (#23)', () => {
+  test('submits a grid, a date and a time as their multi-parameter encodings', async () => {
+    let capturedBody: string | null = null;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
+      capturedBody = (init?.body as string) ?? null;
+      return new Response('', { status: 200 });
+    });
+
+    const res = await app.request('/api/v1/forms/compoundForm/responses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ratings: { speed: 'Good', price: 'Bad' }, when: '2026-02-28', at: '23:59' }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(capturedBody).toBe(
+      'entry.701=Good&entry.702=Bad&entry.500_year=2026&entry.500_month=2&entry.500_day=28&entry.600_hour=23&entry.600_minute=59',
+    );
+  });
+
+  test('answers 400 naming the row for an unknown grid row', async () => {
+    const fetchSpy = noOutboundFetch();
+    const res = await app.request('/api/v1/forms/compoundForm/responses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ratings: { speed: 'Good', price: 'Bad', extra: 'Good' } }),
+    });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({
+      details: [{ field: 'ratings.extra', message: 'additional property not allowed' }],
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  test('answers 400 naming the field for a malformed date', async () => {
+    noOutboundFetch();
+    const res = await app.request('/api/v1/forms/compoundForm/responses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ratings: { speed: 'Good', price: 'Bad' }, when: '2026-02-30' }),
+    });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ details: [{ field: 'when', message: 'must match format: date' }] });
   });
 });

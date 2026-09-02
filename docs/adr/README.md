@@ -11,6 +11,7 @@ These ADRs record the decisions made in the project's design specs, whose workin
 | [0005](0005-backtracking-free-pattern-matcher.md) | Backtracking-free matcher for Google Forms patterns (superseded by 0006) |
 | [0006](0006-google-enforces-patterns-not-us.md) | Google enforces `pattern`, not us |
 | [0007](0007-no-live-schema-extraction-at-runtime.md) | Worker serves registered forms only; no live schema extraction |
+| [0008](0008-compound-questions-through-structured-fieldmap.md) | Grid, date and time questions map through structured `fieldMap` entries |
 
 To add an ADR: copy the format (Status / Date / Source, then Context / Decision / Consequences), take the next number, and add a row here.
 

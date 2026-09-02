@@ -1,5 +1,6 @@
-import type { FieldDetail, RawFormData } from './types.js';
+import type { FieldDetail, GridRow, RawFormData } from './types.js';
 import {
+  FLAG_DERIVED_TYPE_LABELS,
   QUESTION_TYPE_MAP,
   ValidationTypeMap,
   numberValidationTypes,
@@ -92,9 +93,72 @@ export function extractFormId(url: string): string {
   return match?.[1] ?? '';
 }
 
+const GRID_TYPE_CODE = 7;
+const DATE_TYPE_CODE = 9;
+const TIME_TYPE_CODE = 10;
+
 function getQuestionTypeLabel(code?: number): string {
   if (typeof code !== 'number') return 'unknown';
   return QUESTION_TYPE_MAP[code] ?? 'unknown';
+}
+
+// Reads flag `flagIndex` of the flag array at `tupleIndex` of the first
+// entry tuple. Google emits the flags as exactly the numbers 0 and 1;
+// anything else (absent array, absent flag, another number, a string or
+// object) is undefined, so callers fall back to Google's default for that
+// question rather than reading a malformed value as "on" or "off".
+function readFlag(entryData: unknown, tupleIndex: number, flagIndex: number): boolean | undefined {
+  const flags = (entryData as any)?.[0]?.[tupleIndex];
+  if (!Array.isArray(flags)) return undefined;
+  const value = flags[flagIndex];
+  if (value === 1) return true;
+  if (value === 0) return false;
+  return undefined;
+}
+
+// An entry ID is usable when it can become a distinct `entry.<id>` parameter:
+// a finite number (what Google emits) or a non-empty string.
+function isEntryId(id: unknown): id is number | string {
+  return (typeof id === 'number' && Number.isFinite(id)) || (typeof id === 'string' && id !== '');
+}
+
+// Grid, date and time questions carry variants that the type code alone does
+// not distinguish; the flags do (google-forms-internals.md).
+function resolveTypeLabel(typeCode: number | undefined, entryData: unknown): string {
+  const base = getQuestionTypeLabel(typeCode);
+  switch (typeCode) {
+    case GRID_TYPE_CODE:
+      return readFlag(entryData, 11, 0) ? FLAG_DERIVED_TYPE_LABELS.checkboxGrid : base;
+    case DATE_TYPE_CODE:
+      if (readFlag(entryData, 7, 0)) return FLAG_DERIVED_TYPE_LABELS.dateTime;
+      if (readFlag(entryData, 7, 1) === false) return FLAG_DERIVED_TYPE_LABELS.dateWithoutYear;
+      return base;
+    case TIME_TYPE_CODE:
+      return readFlag(entryData, 6, 0) ? FLAG_DERIVED_TYPE_LABELS.duration : base;
+    default:
+      return base;
+  }
+}
+
+// A grid's field[4] holds one tuple per row: [rowEntryId, columns, required,
+// [rowLabel], ...]. Every row needs its own entry ID at submission time, so a
+// row without one fails the whole generation run rather than being dropped —
+// a definition missing a row would silently never submit that row's answer.
+function extractGridRows(label: string, entryData: unknown): GridRow[] {
+  if (!Array.isArray(entryData)) return [];
+  return entryData.map((tuple: unknown, idx: number): GridRow => {
+    const id = (tuple as any)?.[0];
+    if (!isEntryId(id)) {
+      throw new FormParseError(
+        `Grid question "${label}" row ${idx + 1} has no entry ID (unexpected form structure)`,
+      );
+    }
+    const rawLabel = (tuple as any)?.[3]?.[0];
+    return {
+      label: typeof rawLabel === 'string' && rawLabel !== '' ? rawLabel : `Row ${idx + 1}`,
+      entryId: `entry.${String(id)}`,
+    };
+  });
 }
 
 function extractOptions(entryData: unknown): string[] {
@@ -216,15 +280,25 @@ export function parseFormHtml(html: string, url: string): RawFormData {
     const entryIdValue = (entryData as any)?.[0]?.[0];
 
     if (label && entryIdValue !== undefined) {
+      // An entry tuple that exists but carries no usable ID is a malformed
+      // question, not an entry-less block (those have no tuple at all and are
+      // skipped below). Publishing it would map the field to `entry.null` or
+      // similar, a parameter Google does not have, so fail the run instead.
+      if (!isEntryId(entryIdValue)) {
+        throw new FormParseError(
+          `Question "${label}" has no usable entry ID (unexpected form structure)`,
+        );
+      }
       fields.push({
         label,
         entryId: `entry.${String(entryIdValue)}`,
         typeCode,
-        typeLabel: getQuestionTypeLabel(typeCode),
+        typeLabel: resolveTypeLabel(typeCode, entryData),
         options: extractOptions(entryData),
         required: isRequired(entryData),
         validation: extractValidation(entryData),
         helpText: typeof (field as any)?.[2] === 'string' ? (field as any)[2] : undefined,
+        ...(typeCode === GRID_TYPE_CODE ? { rows: extractGridRows(label, entryData) } : {}),
       });
     } else if (label && entryIdValue === undefined) {
       console.warn(`[gforms-proxy] Skipped field "${label}" — no entry ID found (unexpected form structure)`);
