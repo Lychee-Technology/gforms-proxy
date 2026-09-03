@@ -5,6 +5,35 @@ export interface ValidationError {
 
 type Schema = Record<string, unknown>;
 
+// Global error budget (#35). Most error sources are bounded by the schema —
+// one per declared property, one per `required` entry — but two are bounded
+// by the payload: `additionalProperties: false` yields one error per unknown
+// key, and `items` one per offending element (bounded today only because the
+// generator emits `maxItems` on every array, #7). Without a budget the caller
+// sizes the 400 response: 64 KB of two-byte keys was measured at 8,359
+// errors and a 500 KB body. 100 is far more than any form has properties.
+export const MAX_VALIDATION_ERRORS = 100;
+
+// The one place errors are collected. `push` drops everything past the
+// budget and records that it did, so `validate` can append a single marker
+// only when something really was left out, and the payload-driven loops can
+// stop walking rather than push into the void. No count of what was dropped:
+// counting means finishing the walk, which is the work the budget skips.
+class ErrorSink {
+  readonly errors: ValidationError[] = [];
+  truncated = false;
+
+  constructor(private readonly budget: number) {}
+
+  push(error: ValidationError): void {
+    if (this.errors.length >= this.budget) {
+      this.truncated = true;
+      return;
+    }
+    this.errors.push(error);
+  }
+}
+
 function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
@@ -61,7 +90,7 @@ function isCalendarDate(value: string): boolean {
 function validateObjectKeywords(
   value: Record<string, unknown>,
   schema: Schema,
-  errors: ValidationError[],
+  errors: ErrorSink,
   path: (key: string) => string,
 ): void {
   const required = schema['required'];
@@ -77,8 +106,14 @@ function validateObjectKeywords(
   // forbids every key — JSON Schema's reading, not "unchecked".
   const properties = isObject(schema['properties']) ? schema['properties'] : {};
 
+  // Payload-driven: the caller chooses how many keys there are, so this loop
+  // and the `items` scan in validateProperty are the two that can overrun the
+  // budget. The `properties` descent below stops as well, so no sub-walk
+  // starts on a spent budget; `required` and `allOf` are schema-bounded and
+  // run to the end.
   if (schema['additionalProperties'] === false) {
     for (const key of Object.keys(value)) {
+      if (errors.truncated) return;
       if (!Object.hasOwn(properties, key)) {
         errors.push({ field: path(key), message: 'additional property not allowed' });
       }
@@ -86,6 +121,7 @@ function validateObjectKeywords(
   }
 
   for (const [key, propSchema] of Object.entries(properties)) {
+    if (errors.truncated) return;
     if (!Object.hasOwn(value, key)) continue;
     if (isObject(propSchema)) {
       validateProperty(path(key), value[key], propSchema, errors);
@@ -103,7 +139,7 @@ function validateProperty(
   field: string,
   value: unknown,
   schema: Schema,
-  errors: ValidationError[],
+  errors: ErrorSink,
 ): void {
   const type = schema['type'];
   if (typeof type === 'string' && !checkType(value, type)) {
@@ -196,9 +232,10 @@ function validateProperty(
     }
     const items = schema['items'];
     if (isObject(items)) {
-      value.forEach((item, i) => {
+      for (const [i, item] of value.entries()) {
+        if (errors.truncated) return;
         validateProperty(`${field}[${i}]`, item, items, errors);
-      });
+      }
     }
   }
 
@@ -228,9 +265,11 @@ function validateProperty(
         if (isObject(notSchema) && typeof notSchema['pattern'] === 'string') {
           continue;
         }
-        const notErrors: ValidationError[] = [];
+        // A probe: only "any error at all" matters, so one is enough. It
+        // neither spends the outer budget nor is cut short by it.
+        const notErrors = new ErrorSink(1);
         validateProperty(field, value, notSchema, notErrors);
-        if (notErrors.length === 0) {
+        if (notErrors.errors.length === 0) {
           errors.push({ field, message: `must not match constraint: ${JSON.stringify(notSchema)}` });
         }
       } else if (isObject(sub)) {
@@ -242,9 +281,9 @@ function validateProperty(
   const anyOf = schema['anyOf'];
   if (Array.isArray(anyOf)) {
     const matched = (anyOf as Schema[]).some((sub) => {
-      const subErrors: ValidationError[] = [];
+      const subErrors = new ErrorSink(1);
       validateProperty(field, value, sub, subErrors);
-      return subErrors.length === 0;
+      return subErrors.errors.length === 0;
     });
     if (!matched) {
       errors.push({ field, message: 'must match at least one of the allowed schemas' });
@@ -260,7 +299,10 @@ export function validate(
     return [{ field: '(root)', message: 'must be a JSON object' }];
   }
 
-  const errors: ValidationError[] = [];
-  validateObjectKeywords(data, schema, errors, (key) => key);
-  return errors;
+  const sink = new ErrorSink(MAX_VALIDATION_ERRORS);
+  validateObjectKeywords(data, schema, sink, (key) => key);
+  if (sink.truncated) {
+    sink.errors.push({ field: '(root)', message: 'additional errors omitted' });
+  }
+  return sink.errors;
 }

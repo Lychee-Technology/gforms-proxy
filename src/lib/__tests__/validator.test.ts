@@ -1,5 +1,5 @@
 import { describe, test, expect, vi } from 'vitest';
-import { validate } from '../validator.js';
+import { validate, MAX_VALIDATION_ERRORS } from '../validator.js';
 
 describe('validate — required fields', () => {
   const schema = {
@@ -643,5 +643,131 @@ describe('validate — grid objects (named rows, #23)', () => {
     expect(validate({ ratings: { speed: { deep: { deeper: 1 } }, price: 'No' } }, schema)).toEqual([
       { field: 'ratings.speed', message: 'must be of type string' },
     ]);
+  });
+});
+
+/**
+ * The error list is capped (#35). Most error sources are bounded by the
+ * schema, but `additionalProperties: false` yields one error per unknown key
+ * and `items` one per offending element, so without a budget the caller
+ * sizes the 400 response. Past the budget the walk stops and a single marker
+ * says so — without a count, because counting means finishing the walk.
+ */
+describe('validate — error budget (#35)', () => {
+  const OMITTED = { field: '(root)', message: 'additional errors omitted' };
+
+  function unknownKeys(count: number): Record<string, number> {
+    return Object.fromEntries(Array.from({ length: count }, (_, i) => [`k${i}`, 1]));
+  }
+
+  test('the budget is 100', () => {
+    expect(MAX_VALIDATION_ERRORS).toBe(100);
+  });
+
+  test('stops after the budget and appends one marker for unknown keys', () => {
+    const schema = { type: 'object', additionalProperties: false };
+    const errors = validate(unknownKeys(MAX_VALIDATION_ERRORS * 10), schema);
+    expect(errors).toHaveLength(MAX_VALIDATION_ERRORS + 1);
+    expect(errors.at(-1)).toEqual(OMITTED);
+    for (const e of errors.slice(0, -1)) {
+      expect(e.message).toBe('additional property not allowed');
+    }
+  });
+
+  test('a single omitted error is enough to earn the marker', () => {
+    const schema = { type: 'object', additionalProperties: false };
+    const errors = validate(unknownKeys(MAX_VALIDATION_ERRORS + 1), schema);
+    expect(errors).toHaveLength(MAX_VALIDATION_ERRORS + 1);
+    expect(errors.at(-1)).toEqual(OMITTED);
+  });
+
+  test('exactly the budget is reported in full, with no marker', () => {
+    const schema = { type: 'object', additionalProperties: false };
+    const errors = validate(unknownKeys(MAX_VALIDATION_ERRORS), schema);
+    expect(errors).toHaveLength(MAX_VALIDATION_ERRORS);
+    expect(errors.some((e) => e.field === '(root)')).toBe(false);
+  });
+
+  test('bounds the per-item scan of an array with no maxItems', () => {
+    // Every registered form's arrays carry `maxItems` (#7), which is terminal.
+    // A definition that lacked it would otherwise hand this axis back to the
+    // caller, so the budget must hold on its own.
+    const schema = {
+      type: 'object',
+      properties: { tags: { type: 'array', items: { type: 'string' } } },
+    };
+    const tags = Array.from({ length: MAX_VALIDATION_ERRORS * 10 }, () => 0);
+    const errors = validate({ tags }, schema);
+    expect(errors).toHaveLength(MAX_VALIDATION_ERRORS + 1);
+    expect(errors[0]).toEqual({ field: 'tags[0]', message: 'must be of type string' });
+    expect(errors.at(-1)).toEqual(OMITTED);
+  });
+
+  test('the budget is global: a grid object shares it with the root', () => {
+    const schema = {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        ratings: { type: 'object', additionalProperties: false },
+      },
+    };
+    const half = MAX_VALIDATION_ERRORS / 2;
+    const data = { ...unknownKeys(half), ratings: unknownKeys(half + 10) };
+    const errors = validate(data, schema);
+    expect(errors).toHaveLength(MAX_VALIDATION_ERRORS + 1);
+    expect(errors.at(-1)).toEqual(OMITTED);
+    expect(errors.filter((e) => e.field.startsWith('ratings.'))).toHaveLength(half);
+  });
+
+  test('a `not` probe does not spend the outer budget', () => {
+    // The probe collects errors of its own to decide whether the inner schema
+    // matched; those must not count against, or be cut short by, the
+    // caller's list.
+    const schema = {
+      type: 'object',
+      additionalProperties: false,
+      properties: { val: { type: 'number', allOf: [{ not: { const: 0 } }] } },
+    };
+    const data = { ...unknownKeys(MAX_VALIDATION_ERRORS - 1), val: 0 };
+    const errors = validate(data, schema);
+    expect(errors).toHaveLength(MAX_VALIDATION_ERRORS);
+    expect(errors.at(-1)).toEqual({ field: 'val', message: 'must not match constraint: {"const":0}' });
+  });
+
+  test('an `anyOf` probe does not spend the outer budget', () => {
+    // Mirror of the `not` case: each branch is probed on a sink of its own,
+    // so a value that fails every branch costs the caller's list exactly one
+    // entry, however many errors the branches themselves produced.
+    const schema = {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        val: { type: 'number', anyOf: [{ maximum: 0 }, { minimum: 10 }] },
+      },
+    };
+    const data = { ...unknownKeys(MAX_VALIDATION_ERRORS - 1), val: 5 };
+    const errors = validate(data, schema);
+    expect(errors).toHaveLength(MAX_VALIDATION_ERRORS);
+    expect(errors.at(-1)).toEqual({ field: 'val', message: 'must match at least one of the allowed schemas' });
+  });
+
+  test('an `anyOf` branch that overruns its probe still decides correctly', () => {
+    // The probe's budget is one. A branch that would emit many errors (a long
+    // array against `items`) is cut off after the first, which is all the
+    // probe needs: it asks whether the branch matched, not how badly.
+    const schema = {
+      type: 'object',
+      properties: {
+        tags: {
+          type: 'array',
+          anyOf: [{ items: { type: 'string' } }, { items: { type: 'boolean' } }],
+        },
+      },
+    };
+    const tags = Array.from({ length: MAX_VALIDATION_ERRORS * 10 }, () => 0);
+    expect(validate({ tags }, schema)).toEqual([
+      { field: 'tags', message: 'must match at least one of the allowed schemas' },
+    ]);
+    expect(validate({ tags: ['a', 'b'] }, schema)).toEqual([]);
   });
 });
