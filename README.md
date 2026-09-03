@@ -71,7 +71,9 @@ pnpm exec tsx scripts/gen-field-mapping.ts --url <viewform_url> [--gemini-key <k
 
 If the generated schema carries any regex validation, the script prints a note saying how many fields it affects: Google enforces those rules at submission time, not this proxy, so a violating value comes back as a 400 from the submission endpoint instead of being caught locally.
 
-To let the Worker accept submissions for the form, register it: add a JSON import and a `Map` entry in `src/forms/registry.ts`, then deploy (see `docs/adr/0001-static-bundled-form-registry.md`).
+To let the Worker accept submissions for the form, register it: add a JSON import and a `Map` entry in `src/forms/registry.ts`, then merge to `main` (see `docs/adr/0001-static-bundled-form-registry.md`).
+
+Merging to `main` is the deploy: the Cloudflare Workers Builds git integration deploys every push to `main` to production, and builds a public preview URL for every other branch. A preview is the same Worker with the branch's schemas, shares its secrets, and forwards to the real Google Form, so use it to read schemas, not to submit. `pnpm run deploy` deploys the working tree by hand and is only for a hotfix that cannot wait for a merge; the next push to `main` overwrites it. See the Deploying section of `AGENTS.md`.
 
 ### API
 

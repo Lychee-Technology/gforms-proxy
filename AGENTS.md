@@ -10,11 +10,11 @@ pnpm vitest run src/lib/__tests__/schema.test.ts   # run a single test file
 pnpm test:watch                            # vitest watch mode
 pnpm typecheck                             # typecheck src (Workers types) and scripts (node types)
 pnpm dev                                   # wrangler dev (local Worker)
-pnpm run deploy                            # wrangler deploy
+pnpm run deploy                            # wrangler deploy, by hand (see Deploying)
 pnpm cf-types                              # regenerate Cloudflare binding types
 ```
 
-Use `pnpm run deploy`, not `pnpm deploy`: `deploy` is a project script, and `pnpm deploy` is pnpm's own unrelated command.
+Use `pnpm run deploy`, not `pnpm deploy`: `deploy` is a project script, and `pnpm deploy` is pnpm's own unrelated command. It is not the normal deploy path; see Deploying.
 
 Generate a form definition (writes `src/forms/<formId>.json`):
 
@@ -26,6 +26,16 @@ pnpm exec tsx scripts/gen-field-mapping.ts --url <viewform_url> [--gemini-key <k
 
 When the generated schema carries at least one `pattern`, the script prints a note to stderr saying how many fields carry regex validation and that Google, not this proxy, enforces those rules at submission time (ADR 0006). It is informational only: it never changes the exit status or blocks the write.
 
+## Deploying
+
+Merging a PR to `main` is the production deploy. The Cloudflare account has the Workers Builds git integration enabled for the `gforms-proxy` Worker: every push to `main` builds and deploys production (`gforms-proxy.iceboundrock.workers.dev`), and every push to any other branch builds a preview. Nothing in this repository configures that: `.github/workflows/test.yml` only typechecks and tests, and `wrangler.toml` declares no environments. The integration shows up as a `Workers Builds: gforms-proxy` check run on each commit and, on a PR, as a `cloudflare-workers-and-pages` comment carrying the preview URLs (#44 records how this was confirmed).
+
+Consequences:
+
+- A PR that changes a registered form's schema (regenerating a form, renaming keys, changing a type) ships that change to production the moment it merges. The "deploy decision" for such a change is the merge decision, so hold the merge until the change has a go-ahead, and say so in the review.
+- Branch previews are public `workers.dev` URLs (`<branch>-gforms-proxy.iceboundrock.workers.dev`, plus one per commit) that serve the branch's bundled schemas. They are the same Worker with different code, so they share its secrets, including `TURNSTILE_SECRET_KEY`, and they carry the same `submissionUrl`: a preview accepts real submissions to the real Google Form, Turnstile and all. Use a preview to check a schema with `GET /schema` or a validation change with bodies that fail validation. Do not send real submissions through it, and do not hand the URL to a site. Previews stay live after the PR is merged.
+- `pnpm run deploy` still works: it deploys the local working tree directly, whatever branch is checked out, and the next push to `main` overwrites it. Use it for a hotfix that cannot wait for a merge, or if the integration is ever turned off; land the same change on `main` afterwards either way.
+
 ## Architecture
 
 A Cloudflare Worker (Hono app, entry `src/index.ts` per `wrangler.toml`) that fronts Google Forms. It does two things:
@@ -35,7 +45,7 @@ A Cloudflare Worker (Hono app, entry `src/index.ts` per `wrangler.toml`) that fr
 
 Both routes serve registered forms only; anything else gets a JSON `404`. The Worker performs no live schema extraction and never fetches a caller-supplied URL — its only outbound requests go to Google's `formResponse` and Turnstile's siteverify (ADR 0007).
 
-An offline generation step feeds both: `scripts/gen-field-mapping.ts` fetches a form, builds its `FormDefinition` (the schema plus a `fieldMap` from schema keys to `entry.XXXXXXX` IDs), and writes `src/forms/<formId>.json`. Registration is manual: add a JSON import (`with { type: 'json' }`) and a Map entry in `src/forms/registry.ts`, then deploy. Definitions are bundled into the Worker, not stored in KV or D1.
+An offline generation step feeds both: `scripts/gen-field-mapping.ts` fetches a form, builds its `FormDefinition` (the schema plus a `fieldMap` from schema keys to `entry.XXXXXXX` IDs), and writes `src/forms/<formId>.json`. Registration is manual: add a JSON import (`with { type: 'json' }`) and a Map entry in `src/forms/registry.ts`, then merge to `main` (see Deploying). Definitions are bundled into the Worker, not stored in KV or D1.
 
 Data flows through `src/lib/`:
 
@@ -65,7 +75,7 @@ Anything a task produces that is not code (design docs, specs, plans, research n
 
 ## PR rules
 
-- Do not merge a PR unless I explicitly ask you to.
+- Do not merge a PR unless I explicitly ask you to. Merging deploys production (see Deploying).
 - When reviewing a PR, post everything (findings, spec and standards checks, assessment, observations, verification, summary) as one comment on the PR.
 - When I ask you to merge a PR, squash-merge by default unless I ask for something else.
 - After a PR is merged, clean up local branches and worktrees, fast-forward main, then update and close related issues.
