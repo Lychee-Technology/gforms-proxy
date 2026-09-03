@@ -169,6 +169,22 @@ describe('POST /api/v1/forms/:formId/responses', () => {
     expect(json.details.length).toBeGreaterThan(0);
   });
 
+  test('caps details at 100 errors plus one marker, however many keys are sent (#35)', async () => {
+    const fetchSpy = noOutboundFetch();
+    const body = Object.fromEntries(Array.from({ length: 2000 }, (_, i) => [`k${i}`, 1]));
+    const res = await app.request('/api/v1/forms/testForm123/responses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    expect(res.status).toBe(400);
+    const json = await res.json() as { error: string; details: { field: string; message: string }[] };
+    expect(json.error).toBe('Validation failed');
+    expect(json.details).toHaveLength(101);
+    expect(json.details.at(-1)).toEqual({ field: '(root)', message: 'additional errors omitted' });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   test('returns 200 success on valid submission', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('', { status: 200 }));
     const res = await app.request('/api/v1/forms/testForm123/responses', {

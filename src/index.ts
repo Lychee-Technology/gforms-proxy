@@ -31,7 +31,8 @@ app.get('/api/v1/forms/:formId/schema', (c) => {
 // A free Cloudflare Worker gets 10 ms of CPU per request. Everything the
 // submission route does after this point is linear in the request body, and
 // without a cap the caller picks the multiplier: `JSON.parse` below, the
-// `additionalProperties: false` key walk (one error object per unknown key),
+// `additionalProperties: false` key walk (its error objects are capped at 100
+// since #35, but the walk over the keys is still linear),
 // `uniqueItems`' `JSON.stringify` per array element, `EMAIL_RE` / `URI_RE`
 // over each string, and `encodeURIComponent` over every value in
 // `submitter.ts`. None of those is superlinear — this is not a ReDoS cliff —

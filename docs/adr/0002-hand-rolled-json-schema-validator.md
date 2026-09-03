@@ -40,6 +40,8 @@ There is correspondingly no build-time pattern gate: `pattern-policy.ts` and `pn
 
 It returns a flat list of `{ field, message }` errors, which the route surfaces as a 400 response with structured `details`.
 
+> **Amended 2026-09-02 (#35):** the list is capped. Most error sources are bounded by the schema, but two are bounded by the payload: `additionalProperties: false` yields one error per unknown key, and `items` one per offending element (bounded today only because the generator emits `maxItems` on every array, #7). A 64 KB body of two-byte keys was measured at 8,359 errors and a 500 KB response, so the *response* was sized by the request rather than by the schema. `validate()` now collects at most `MAX_VALIDATION_ERRORS` (100) errors through one sink; the first error past the budget stops the payload-driven loops, and a single marker `{ field: '(root)', message: 'additional errors omitted' }` is appended only when something really was dropped, so a body producing exactly 100 errors gets all of them and no marker. The marker carries no count of what was omitted, deliberately: counting means finishing the walk, and the budget exists to stop early. The `not` and `anyOf` probes ask only whether a sub-schema produced any error, so they run on a sink of their own with a budget of one and neither spend nor are cut short by the caller's. The `maxItems` / `maxLength` terminal returns above bound the work on one *field*; this bounds the *list*, and it is not the second CPU bound that `AGENTS.md` warns against, because CPU is already bounded by the 64 KB cap and this changes only what is returned.
+
 ## Consequences
 
 - Validation runs on Workers with zero dependencies and no schema-compilation step.
@@ -47,4 +49,5 @@ It returns a flat list of `{ field, message }` errors, which the route surfaces 
 - No form can fail to deploy because of its regex. Nothing inspects a pattern at build time, and a pattern Google accepts is a pattern this proxy will forward.
 - Because `maxLength` is terminal, a submitted string that is both too long and format-violating returns only the length error in the 400 `details`. No definition in `src/forms/` currently carries a `maxLength`, so nothing changes today; a consumer of `POST /api/v1/forms/:formId/responses` would see it the first time a registered form has a maximum-length rule.
 - Error messages are our own format, written for API consumers, rather than ajv's error objects.
+- A 400 `details` array holds at most 101 entries: 100 errors, then the `(root)` marker when more were found (#35). A consumer that wants every error for a body with more than 100 problems has to fix the first 100 and resubmit; no form has anywhere near that many properties, so in practice the cap is reached only by a body that is mostly unknown keys.
 - The validator ignores keywords it does not recognize instead of rejecting them, so code review, not the runtime, enforces the coupling rule above.
