@@ -34,7 +34,7 @@ From that it generates a JSON Schema: types and constraints per field, validatio
 | 7 | checkbox_grid | object, one array of strings (enum) property per row |
 | 9 | date | string (date format) |
 | 10 | time | string (time format) |
-| 18 | rating | string (not yet mapped to integer, see #43) |
+| 18 | rating | integer (range) |
 
 Both grid variants share code 7; a per-row flag in the entry tuple tells them apart (see `google-forms-internals.md`). Code 6 is a title/description block with no entry and is skipped.
 

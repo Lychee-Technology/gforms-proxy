@@ -36,7 +36,7 @@ Mapped in `QUESTION_TYPE_MAP`:
 - `7` multiple_choice_grid, refined to `checkbox_grid` by a per-entry flag (see below)
 - `9` date, refined to `date_time` / `date_without_year` by per-entry flags
 - `10` time, refined to `duration` by a per-entry flag
-- `18` rating
+- `18` rating (star, heart or thumbs-up scale; same layout as `5`, see below)
 - unknown/default: `unknown`
 
 Source for the codes and flag positions: `python-gforms` (`gforms/elements_base.py`), cross-checked against the live payloads of the registered forms.
@@ -56,6 +56,18 @@ A grid question (type code `7`) has one tuple per row in `field[4]`:
 A date question (code `9`) has `entryData[0][7] = [includesTime, includesYear]`. It is submitted as `entry.X_year`, `entry.X_month`, `entry.X_day` (plus `_hour` / `_minute` when it includes a time). The proxy supports only year-and-no-time dates; the other variants are refused by `scripts/field-support.ts` as `date_time` / `date_without_year` (ADR 0008).
 
 A time question (code `10`) has `entryData[0][6] = [isDuration]`. It is submitted as `entry.X_hour`, `entry.X_minute` (plus `_second` for a duration). Durations are refused as `duration`.
+
+## Linear scale and rating entries
+
+A linear scale (code `5`) and a rating (code `18`) carry their scale as ordinary options in `entryData[0][1]`, one tuple per step: `[["1"],["2"],["3"],["4"],["5"]]`. The generator maps both to an `integer` property whose `minimum` / `maximum` are the smallest and largest numeric option. The answer is submitted as that number under `entry.X`; Google validates it server-side and answers 400 for a value outside the scale or a non-numeric string.
+
+A rating entry additionally has `entryData[0][14] = [icon]`: `1` star, `2` heart (thumbs-up is the remaining choice and was not captured). The icon is presentation only and does not change the schema or the submission.
+
+Layout captured on 2026-09-03 from a scratch form with one rating question (5 stars, then 10 hearts, optional then required), fetched from its public `viewform` page (#43):
+
+    [721056754,"Untitled Question",null,18,[[2114216383,[["1"],["2"],["3"],["4"],["5"],["6"],["7"],["8"],["9"],["10"]],1,null,null,null,null,null,null,null,null,null,null,null,[2]]],null,null,null,null,null,null,[null,"Untitled Question"]]
+
+Submitting `entry.2114216383=7` to that form was recorded (200); `11` and `abc` were both refused (400).
 
 ## Validation payload format
 `extractValidation` expects `entryData[0][3]` (fallback `[4]`) to be an array whose first item is `data`, also an array. Structure:
