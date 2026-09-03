@@ -476,3 +476,59 @@ describe('grid, date and time schemas (#23)', () => {
     ]);
   });
 });
+
+describe('linear_scale and rating schemas (#43)', () => {
+  const scaleField = (typeLabel: 'linear_scale' | 'rating', options: string[], required = false): FieldDetail => ({
+    label: 'How was it?',
+    typeCode: typeLabel === 'rating' ? 18 : 5,
+    typeLabel,
+    options,
+    required,
+    entryId: 'entry.1',
+  });
+  const rawWith = (field: FieldDetail): RawFormData => ({ ...BASE_DATA, fields: [field] });
+  const propertyOf = (field: FieldDetail) =>
+    (buildJsonSchema(rawWith(field)).properties as Record<string, Record<string, unknown>>).field_1!;
+
+  test('a rating is an integer bounded by its scale', () => {
+    const property = propertyOf(scaleField('rating', ['1', '2', '3', '4', '5']));
+    expect(property.type).toBe('integer');
+    expect(property.minimum).toBe(1);
+    expect(property.maximum).toBe(5);
+    expect(property.enum).toBeUndefined();
+  });
+
+  test('a linear scale is an integer bounded by its scale', () => {
+    const property = propertyOf(scaleField('linear_scale', ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10']));
+    expect(property.type).toBe('integer');
+    expect(property.minimum).toBe(1);
+    expect(property.maximum).toBe(10);
+  });
+
+  test('a rating with no numeric options is a bare integer', () => {
+    const property = propertyOf(scaleField('rating', []));
+    expect(property.type).toBe('integer');
+    expect(property.minimum).toBeUndefined();
+    expect(property.maximum).toBeUndefined();
+    expect(property.minLength).toBeUndefined();
+  });
+
+  test('a required rating is listed in required, not given minLength', () => {
+    const schema = buildJsonSchema(rawWith(scaleField('rating', ['1', '2', '3'], true)));
+    expect(schema.required).toEqual(['field_1']);
+    const property = (schema.properties as Record<string, Record<string, unknown>>).field_1!;
+    expect(property.minLength).toBeUndefined();
+  });
+
+  test('the rating schema accepts an in-range integer and rejects a string or out-of-range value', () => {
+    const schema = buildJsonSchema(rawWith(scaleField('rating', ['1', '2', '3', '4', '5'])));
+    expect(validate({ field_1: 4 }, schema)).toEqual([]);
+    expect(validate({ field_1: '4' }, schema)).not.toEqual([]);
+    expect(validate({ field_1: 6 }, schema)).not.toEqual([]);
+  });
+
+  test('a rating maps to a plain entry ID in the fieldMap', () => {
+    const field = scaleField('rating', ['1', '2', '3']);
+    expect(buildFieldMap([field], buildFieldsMeta([field.label]))).toEqual({ field_1: 'entry.1' });
+  });
+});

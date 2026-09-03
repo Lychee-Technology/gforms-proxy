@@ -281,7 +281,10 @@ const buildFieldPropertySchema = (field: FieldSchemaDetail): JsonSchemaProperty 
         },
         field,
       );
-    case 'linear_scale': {
+    case 'linear_scale':
+    case 'rating': {
+      // Both carry their scale as numeric options ("1"..N); the rating's
+      // icon lives in a separate flag and does not affect the wire format (#43).
       const range = getNumericRange(field.options);
       return applyValidationToSchema(
         { ...base, type: 'integer', ...(range ? { minimum: range.min, maximum: range.max } : {}) },
