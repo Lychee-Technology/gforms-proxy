@@ -10,7 +10,7 @@ type Schema = Record<string, unknown>;
 // by the payload: `additionalProperties: false` yields one error per unknown
 // key, and `items` one per offending element (bounded today only because the
 // generator emits `maxItems` on every array, #7). Without a budget the caller
-// sizes the 400 response: 64 KB of two-byte keys was measured at ~8,400
+// sizes the 400 response: 64 KB of two-byte keys was measured at 8,359
 // errors and a 500 KB body. 100 is far more than any form has properties.
 export const MAX_VALIDATION_ERRORS = 100;
 

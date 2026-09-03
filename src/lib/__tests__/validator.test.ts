@@ -733,4 +733,41 @@ describe('validate — error budget (#35)', () => {
     expect(errors).toHaveLength(MAX_VALIDATION_ERRORS);
     expect(errors.at(-1)).toEqual({ field: 'val', message: 'must not match constraint: {"const":0}' });
   });
+
+  test('an `anyOf` probe does not spend the outer budget', () => {
+    // Mirror of the `not` case: each branch is probed on a sink of its own,
+    // so a value that fails every branch costs the caller's list exactly one
+    // entry, however many errors the branches themselves produced.
+    const schema = {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        val: { type: 'number', anyOf: [{ maximum: 0 }, { minimum: 10 }] },
+      },
+    };
+    const data = { ...unknownKeys(MAX_VALIDATION_ERRORS - 1), val: 5 };
+    const errors = validate(data, schema);
+    expect(errors).toHaveLength(MAX_VALIDATION_ERRORS);
+    expect(errors.at(-1)).toEqual({ field: 'val', message: 'must match at least one of the allowed schemas' });
+  });
+
+  test('an `anyOf` branch that overruns its probe still decides correctly', () => {
+    // The probe's budget is one. A branch that would emit many errors (a long
+    // array against `items`) is cut off after the first, which is all the
+    // probe needs: it asks whether the branch matched, not how badly.
+    const schema = {
+      type: 'object',
+      properties: {
+        tags: {
+          type: 'array',
+          anyOf: [{ items: { type: 'string' } }, { items: { type: 'boolean' } }],
+        },
+      },
+    };
+    const tags = Array.from({ length: MAX_VALIDATION_ERRORS * 10 }, () => 0);
+    expect(validate({ tags }, schema)).toEqual([
+      { field: 'tags', message: 'must match at least one of the allowed schemas' },
+    ]);
+    expect(validate({ tags: ['a', 'b'] }, schema)).toEqual([]);
+  });
 });
