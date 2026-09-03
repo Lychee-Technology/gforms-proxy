@@ -133,7 +133,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   console.error(`  1. Add to src/forms/registry.ts:`);
   console.error(`     import form from './${rawData.formId}.json' with { type: 'json' };`);
   console.error(`     // In the Map: ['${rawData.formId}', form as FormDefinition]`);
-  console.error('  2. pnpm run deploy');
+  console.error('  2. Merge to main (Workers Builds deploys it to production)');
 }
 
 const isMainModule =
